@@ -10,7 +10,10 @@
 | NewPipeExtractor v0.26.5 (JitPack) | YouTube extraction (own signature/`n` solving, no JS runtime needed) |
 | okhttp 4.12.0 | HTTP bridge the extractor requires |
 | desugar_jdk_libs_nio 2.1.5 | required by the extractor on minSdk < 33 |
+| media3-exoplayer / -session / -ui 1.5.1 | playback, MediaSession service + notification, PlayerView |
+| media3-exoplayer-hls 1.5.1 | live streams (HLS) |
+| guava 33.3.1-android | `ListenableFuture` returned by `MediaController.buildAsync()` |
 | junit 4.13.2 (test) | unit tests |
 
-Deliberately NOT added yet (added with the phase that needs them): Media3, Room (+kapt), WorkManager,
+Deliberately NOT added yet (added with the phase that needs them): Room (+kapt), WorkManager,
 FFmpeg, yt-dlp.

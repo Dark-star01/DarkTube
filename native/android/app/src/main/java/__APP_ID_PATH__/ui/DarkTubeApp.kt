@@ -111,7 +111,7 @@ fun DarkTubeApp(
                 ) { backStackEntry ->
                     val id = backStackEntry.arguments?.getString(Routes.VIDEO_ARG).orEmpty()
                     val vm = appViewModel(key = "video-$id") { VideoViewModel(id, container.extractor) }
-                    VideoScreen(vm, onBack = { nav.popBackStack() })
+                    VideoScreen(vm, container.playerConnection, container.pip, onBack = { nav.popBackStack() })
                 }
             }
         }

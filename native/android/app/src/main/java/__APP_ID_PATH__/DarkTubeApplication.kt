@@ -4,12 +4,17 @@ import __APP_ID__.core.extraction.VideoExtractor
 import __APP_ID__.core.extraction.newpipe.NewPipeVideoExtractor
 import __APP_ID__.core.extraction.newpipe.OkHttpDownloader
 import __APP_ID__.core.log.AppLog
+import __APP_ID__.core.playback.PipState
+import __APP_ID__.core.playback.PlayerConnection
 import android.app.Application
+import android.content.Context
 import android.util.Log
 
 /** Manual DI: one small object holding the app-wide singletons. */
-class AppContainer {
+class AppContainer(context: Context) {
     val extractor: VideoExtractor = NewPipeVideoExtractor(OkHttpDownloader())
+    val playerConnection = PlayerConnection(context.applicationContext)
+    val pip = PipState()
 }
 
 class DarkTubeApplication : Application() {
@@ -26,7 +31,7 @@ class DarkTubeApplication : Application() {
                 AppLog.Level.ERROR -> Log.e(tag, msg)
             }
         }
-        container = AppContainer()
+        container = AppContainer(this)
         AppLog.i("App", "DarkTube started")
     }
 }

@@ -150,4 +150,19 @@ class StreamCatalogTest {
         assertNotNull(StreamCatalog.DEFAULT_CODEC_ORDER)
         assertNotEquals(0, StreamCatalog.DEFAULT_CODEC_ORDER.size)
     }
+
+    @Test fun duplicateSubtitleLabelsAreDisambiguated() {
+        val labels = StreamCatalog.subtitleTracks(
+            listOf(s("en", false), s("en-CA", false), s("en-GB", false), s("pt", false), s("pt-BR", false), s("zh-Hans", false), s("zh-Hant", false)),
+        ).map { it.label }
+        assertEquals(labels.size, labels.toSet().size)
+        assertTrue(labels.contains("English"))
+        assertTrue(labels.contains("Portuguese"))
+        assertTrue(labels.any { it.startsWith("Portuguese (") })
+    }
+
+    @Test fun languageNamesNeverContainLineBreaks() {
+        val all = StreamCatalog.subtitleTracks(listOf(s("th", false), s("ar", false))).map { it.label }
+        assertTrue(all.none { it.contains('\n') || it != it.trim() })
+    }
 }
