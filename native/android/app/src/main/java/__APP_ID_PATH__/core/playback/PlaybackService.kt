@@ -37,9 +37,10 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+        player.addAnalyticsListener(PlayerDiagnostics.analytics)
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                AppLog.e("Player", "playback error ${error.errorCodeName}", error)
+                AppLog.e("Player", PlayerDiagnostics.describeError(error), error)
             }
         })
         session = MediaSession.Builder(this, player).build()

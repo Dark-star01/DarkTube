@@ -21,9 +21,11 @@ object PlayerSession {
     ): Boolean {
         val current = controller.currentMediaItem
         val sameVideo = current?.mediaId == video.id
+        // NOTE: do not compare localConfiguration.uri here: controllers never receive it (always null).
+        val extras = current?.requestMetadata?.extras
         val sameStream = sameVideo &&
-            current?.localConfiguration?.uri?.toString() == plan.videoUrl &&
-            current.requestMetadata.extras?.getString(MediaItems.KEY_AUDIO_URL) == plan.audioUrl
+            extras?.getString(MediaItems.KEY_VIDEO_URL) == plan.videoUrl &&
+            extras.getString(MediaItems.KEY_AUDIO_URL) == plan.audioUrl
         if (sameStream) return false
 
         val resumeAt = if (sameVideo && !controller.isCurrentMediaItemLive) controller.currentPosition else 0L

@@ -43,6 +43,9 @@ class MergingMediaSourceFactory(
 object MediaItems {
     const val KEY_AUDIO_URL = "darktube.audioUrl"
 
+    /** Stored because MediaItem.localConfiguration (the uri) is NOT sent from the service to controllers. */
+    const val KEY_VIDEO_URL = "darktube.videoUrl"
+
     fun build(
         videoId: String,
         title: String,
@@ -56,7 +59,10 @@ object MediaItems {
             .setArtist(channel)
             .setArtworkUri(thumbnailUrl?.let(android.net.Uri::parse))
             .build()
-        val extras = Bundle().apply { plan.audioUrl?.let { putString(KEY_AUDIO_URL, it) } }
+        val extras = Bundle().apply {
+            putString(KEY_VIDEO_URL, plan.videoUrl)
+            plan.audioUrl?.let { putString(KEY_AUDIO_URL, it) }
+        }
         return MediaItem.Builder()
             .setMediaId(videoId)
             .setUri(plan.videoUrl)

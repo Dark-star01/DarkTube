@@ -14,7 +14,9 @@ expect the possibility of small compile fixes.
 | Detecting multiple audio tracks and official dubs | **Supported**: device report showed original + 20 dubs with correct languages and track ids |
 | Switching audio track during playback | **Partially supported** by design: implemented as a same-position reload (brief rebuffer). Untested on device |
 | Subtitle discovery, manual vs auto-generated labelling | **Supported** (device report: 29 tracks incl. auto-generated) |
-| Subtitle rendering and switching | Implemented (TTML/VTT/SRT via Media3, instant switch, no reload). Untested on device |
+| Subtitle selection | Was broken (id mismatch); fixed in 0.4.1, verified by source reading + unit tests, not yet on device |
+| Subtitle rendering | Unverified on device; real reason now reported per track (see PHASE4-FIX.md) |
+| Playback error at ~0:10 (John Michael Howell video) | Cause unknown; diagnostics added in 0.4.1 |
 | Subtitle formats other than TTML/VTT/SRT | Not supported (not offered) |
 | Resume from last position | Not working: no persistence exists (see KNOWN-ISSUES) |
 | Queue | Not implemented in code (see KNOWN-ISSUES) |

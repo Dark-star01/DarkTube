@@ -14,6 +14,8 @@ import __APP_ID__.core.playback.PlaybackPlan
 import __APP_ID__.core.playback.PlaybackPlanner
 import __APP_ID__.core.playback.PlayerConnection
 import __APP_ID__.core.playback.PlayerSession
+import __APP_ID__.core.playback.SubtitleProbe
+import __APP_ID__.core.playback.UrlDescriber
 import __APP_ID__.core.playback.SubtitlePlanner
 import __APP_ID__.core.playback.selectSubtitle
 import __APP_ID__.core.playback.selectedSubtitleId
@@ -63,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +82,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Tracks
 import androidx.media3.common.Player
@@ -134,6 +138,9 @@ private fun VideoContent(
     var audioTrackId by rememberSaveable { mutableStateOf<String?>(null) } // null = default (original)
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackDetails by remember { mutableStateOf<String?>(null) }
+    var subtitleNote by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     var plan by remember { mutableStateOf<PlaybackPlan?>(null) }
     var selectedSubtitleId by remember { mutableStateOf<String?>(null) }
     // Last audio selection that actually played; restored if a newly chosen track fails to load.
@@ -162,8 +169,11 @@ private fun VideoContent(
         }
         playerConnection.setVideoEnabled(true)
         playbackError = null
+        playbackDetails = null
         if (PlayerSession.load(c, summary, next, subtitleSources)) {
             AppLog.i("Player", "load ${summary.id} quality=${next.qualityLabel} audio=${next.audioTrackId ?: "built-in"} subs=${subtitleSources.size}")
+            AppLog.i("Player", "  video: ${UrlDescriber.describe(next.videoUrl)}")
+            next.audioUrl?.let { AppLog.i("Player", "  audio: ${UrlDescriber.describe(it)}") }
         }
     }
 
@@ -173,7 +183,7 @@ private fun VideoContent(
         selectedSubtitleId = c?.selectedSubtitleId()
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                AppLog.w("Player", "UI saw error ${error.errorCodeName}")
+                playbackDetails = "${error.errorCodeName} (${error.errorCode})"
                 if (audioTrackId != lastGoodAudioId) {
                     audioTrackId = lastGoodAudioId // revert; this triggers a reload of the last working track
                     playbackError = "This audio track could not be loaded."
@@ -218,7 +228,7 @@ private fun VideoContent(
             PlayerSurface(controller, showControls = true, onFullscreen = { fullscreen = it }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
 
             playbackError?.let { message ->
-                ErrorBox(message, onRetry = viewModel::load, modifier = Modifier.padding(horizontal = 16.dp))
+                ErrorBox(message, playbackDetails, onRetry = viewModel::load, modifier = Modifier.padding(horizontal = 16.dp))
             }
 
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -231,11 +241,35 @@ private fun VideoContent(
                 QualityRow(info, qualityKey, onSelect = { qualityKey = it })
                 AudioRow(audioTracks, audioTrackId, builtInOnly = plan != null && plan?.audioUrl == null, onSelect = { audioTrackId = it })
                 SubtitleRow(
-                    subtitleSources.map { it.id to it.label },
-                    selectedSubtitleId,
-                    onSelect = { id -> controller?.let { c -> if (!c.selectSubtitle(id)) playbackError = "This subtitle track could not be loaded." } },
+                    options = subtitleSources.map { it.id to it.label },
+                    selectedId = selectedSubtitleId,
+                    note = subtitleNote,
+                    onSelect = { id ->
+                        val c = controller
+                        if (c != null) {
+                            if (id == null) {
+                                subtitleNote = null
+                                c.selectSubtitle(null)
+                            } else {
+                                val source = subtitleSources.first { it.id == id }
+                                scope.launch {
+                                    // Check what YouTube really sends before selecting, so a bad track
+                                    // gives a precise reason instead of silently showing nothing.
+                                    val probe = SubtitleProbe.probe(source)
+                                    if (!probe.usable) {
+                                        subtitleNote = probe.userMessage
+                                    } else if (!c.selectSubtitle(id)) {
+                                        subtitleNote = "Subtitle tracks are still loading. Try again in a moment."
+                                    } else {
+                                        subtitleNote = null
+                                    }
+                                }
+                            }
+                        }
+                    },
                 )
             }
+
             StreamInspector(info, viewModel, Modifier.padding(horizontal = 16.dp))
 
             if (info.details.description.isNotBlank()) {
@@ -312,11 +346,16 @@ private fun describe(error: PlaybackException): String = when (error.errorCode) 
 }
 
 @Composable
-private fun ErrorBox(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+private fun ErrorBox(message: String, details: String?, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    var showDetails by remember { mutableStateOf(false) }
     Card(modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(message, style = MaterialTheme.typography.bodyLarge)
-            OutlinedButton(onClick = onRetry) { Text("Retry") }
+            if (showDetails && details != null) Muted(details)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onRetry) { Text("Retry") }
+                if (details != null) OutlinedButton(onClick = { showDetails = !showDetails }) { Text(if (showDetails) "Hide details" else "Details") }
+            }
         }
     }
 }
@@ -386,13 +425,19 @@ private fun AudioRow(
 }
 
 @Composable
-private fun SubtitleRow(options: List<Pair<String, String>>, selectedId: String?, onSelect: (String?) -> Unit) {
+private fun SubtitleRow(
+    options: List<Pair<String, String>>,
+    selectedId: String?,
+    note: String?,
+    onSelect: (String?) -> Unit,
+) {
     if (options.isEmpty()) {
         StaticRow("Subtitles", "None available")
         return
     }
     val current = options.firstOrNull { it.first == selectedId }?.second ?: "Off"
     DropdownRow("Subtitles", current, listOf<Pair<String?, String>>(null to "Off") + options, onSelect)
+    if (note != null) Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 }
 
 /**

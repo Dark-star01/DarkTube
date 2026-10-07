@@ -22,12 +22,12 @@ Switching track rebuilds the merged source at the same position, so expect a sho
 per video, so it was rejected.
 
 ## Subtitles
-- Only formats Media3 can parse are offered: TTML, WebVTT, SRT. On the MrBeast test video every
-  track is TTML. A track available only in another format is not listed in the dropdown (it still
-  appears in the Stream inspector).
-- A subtitle that fails to download is silent (no captions) instead of stopping the video; there is
-  no on-screen error for that case.
-- The player's own CC button and the Subtitles dropdown on the page both work and stay in sync.
+- Fixed in 0.4.1: selection never worked because Media3 prefixes merged track ids (see PHASE4-FIX.md).
+- Rendering is UNVERIFIED on device. Before a track is selected DarkTube probes its file and reports
+  empty / HTML / HTTP-error / wrong-format responses with a specific message. If YouTube requires a
+  token for subtitle files, those tracks cannot be shown with the current engine.
+- Only formats Media3 can parse are offered: TTML, WebVTT, SRT.
+- A subtitle that fails during playback is silent rather than stopping the video.
 
 ## Other
 - A quality that only exists with built-in audio cannot switch audio tracks (the page says so).

@@ -11,6 +11,7 @@ fun MediaController.selectedSubtitleId(): String? {
     return currentTracks.groups
         .firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
         ?.getTrackFormat(0)?.id
+        .let { SubtitlePlanner.originalId(it) }
 }
 
 /** @return false if the requested track isn't present in the player (yet). */
@@ -20,7 +21,7 @@ fun MediaController.selectSubtitle(id: String?): Boolean {
         params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
     } else {
         val group = currentTracks.groups
-            .firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.getTrackFormat(0).id == id }
+            .firstOrNull { it.type == C.TRACK_TYPE_TEXT && SubtitlePlanner.originalId(it.getTrackFormat(0).id) == id }
             ?: return false
         params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
