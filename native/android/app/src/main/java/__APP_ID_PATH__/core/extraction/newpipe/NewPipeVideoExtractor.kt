@@ -79,13 +79,13 @@ class NewPipeVideoExtractor(downloader: Downloader) : VideoExtractor {
                     val info = SearchInfo.getInfo(service, handler)
                     SearchPage(
                         results = info.relatedItems.toSummaries(),
-                        next = if (info.hasNextPage()) SearchCursor(query, info.nextPage) else null,
+                        next = info.nextPage?.takeIf { info.hasNextPage() }?.let { SearchCursor(query, it) },
                     )
                 } else {
                     val page = SearchInfo.getMoreItems(service, handler, cursor.raw as Page)
                     SearchPage(
                         results = page.items.toSummaries(),
-                        next = if (page.hasNextPage()) SearchCursor(query, page.nextPage) else null,
+                        next = page.nextPage?.takeIf { page.hasNextPage() }?.let { SearchCursor(query, it) },
                     )
                 }
             }
@@ -121,7 +121,7 @@ class NewPipeVideoExtractor(downloader: Downloader) : VideoExtractor {
                             uploadedText = info.textualUploadDate,
                             isLive = live,
                         ),
-                        description = info.description?.content().orEmpty(),
+                        description = info.description?.content.orEmpty(),
                         ageLimit = info.ageLimit,
                     ),
                     streams = StreamSet(
