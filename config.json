@@ -1,0 +1,21 @@
+{
+  "appName": "DarkTube",
+  "appId": "com.dark.darktube",
+  "version": "0.2.0",
+  "versionCode": 2,
+  "capacitorVersion": "7.6.9",
+  "native": {
+    "enabled": true,
+    "mode": "merge",
+    "kotlinVersion": "1.9.24",
+    "permissions": [],
+    "extraDependencies": [],
+    "compose": { "enabled": true, "compilerVersion": "1.5.14", "bomVersion": "2024.06.00" },
+    "customFiles": {
+      "merge": ["build.gradle"],
+      "replace": ["AndroidManifest.xml", "gradle.properties"]
+    }
+  },
+  "env": { "enabled": false, "vars": {} },
+  "splash": { "enabled": false, "backgroundColor": "#0B0B10" }
+}

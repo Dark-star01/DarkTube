@@ -1,0 +1,6 @@
+// Root build.gradle (merged, additive). JitPack hosts NewPipeExtractor and its nanojson dependency.
+allprojects {
+    repositories {
+        maven { url 'https://jitpack.io' }
+    }
+}

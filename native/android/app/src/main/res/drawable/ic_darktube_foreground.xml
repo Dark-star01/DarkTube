@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Rounded play triangle, kept inside the 66dp adaptive-icon safe zone -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M42,34 L42,74 L76,54 Z" />
+    <path android:fillColor="#7C5CFF"
+        android:pathData="M50,45 L50,63 L65,54 Z" />
+</vector>
