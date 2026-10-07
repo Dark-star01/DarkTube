@@ -10,6 +10,8 @@ data class PlaybackPlan(
     val audioUrl: String?,
     val qualityLabel: String,
     val isHls: Boolean = false,
+    /** Track id of the separately merged audio; null when the stream carries its own audio. */
+    val audioTrackId: String? = null,
 )
 
 /**
@@ -53,7 +55,7 @@ object PlaybackPlanner {
         val muxed = q.muxed
 
         return when {
-            videoOnly != null && track != null -> PlaybackPlan(videoOnly.url, track.best.url, q.label)
+            videoOnly != null && track != null -> PlaybackPlan(videoOnly.url, track.best.url, q.label, audioTrackId = track.trackId)
             // No audio track to merge (or this height only exists muxed): the muxed stream carries its own audio.
             muxed != null -> PlaybackPlan(muxed.url, null, q.label)
             videoOnly != null -> PlaybackPlan(videoOnly.url, null, q.label)

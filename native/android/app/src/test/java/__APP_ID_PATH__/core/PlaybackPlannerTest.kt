@@ -48,6 +48,25 @@ class PlaybackPlannerTest {
     @Test fun selectedDubTrackIsUsed() {
         val p = PlaybackPlanner.plan(set(listOf(v(10, 720)), dubbed), "720p", audioTrackId = "ar.3")!!
         assertEquals("a3", p.audioUrl)
+        assertEquals("ar.3", p.audioTrackId)
+    }
+
+    @Test fun unknownTrackIdFallsBackToOriginal() {
+        val p = PlaybackPlanner.plan(set(listOf(v(10, 720)), dubbed), "720p", audioTrackId = "xx.9")!!
+        assertEquals("en.4", p.audioTrackId)
+    }
+
+    @Test fun muxedPlanReportsNoMergedTrack() {
+        val p = PlaybackPlanner.plan(set(listOf(v(22, 720, muxed = true)), dubbed), "720p")!!
+        assertNull(p.audioTrackId)
+    }
+
+    @Test fun switchingTrackChangesAudioUrlButNotVideo() {
+        val streams = set(listOf(v(10, 720)), dubbed)
+        val en = PlaybackPlanner.plan(streams, "720p", audioTrackId = "en.4")!!
+        val ar = PlaybackPlanner.plan(streams, "720p", audioTrackId = "ar.3")!!
+        assertEquals(en.videoUrl, ar.videoUrl)
+        assertTrue(en.audioUrl != ar.audioUrl)
     }
 
     @Test fun preferredLanguageSelectsDub() {

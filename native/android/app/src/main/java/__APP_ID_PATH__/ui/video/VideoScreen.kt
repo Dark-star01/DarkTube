@@ -9,10 +9,14 @@ import __APP_ID__.core.extraction.audioTracks
 import __APP_ID__.core.extraction.qualities
 import __APP_ID__.core.extraction.subtitleTracks
 import __APP_ID__.core.log.AppLog
-import __APP_ID__.core.playback.MediaItems
 import __APP_ID__.core.playback.PipState
+import __APP_ID__.core.playback.PlaybackPlan
 import __APP_ID__.core.playback.PlaybackPlanner
 import __APP_ID__.core.playback.PlayerConnection
+import __APP_ID__.core.playback.PlayerSession
+import __APP_ID__.core.playback.SubtitlePlanner
+import __APP_ID__.core.playback.selectSubtitle
+import __APP_ID__.core.playback.selectedSubtitleId
 import __APP_ID__.ui.common.ErrorCard
 import __APP_ID__.ui.common.LoadingBox
 import __APP_ID__.ui.common.SectionTitle
@@ -76,6 +80,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -125,9 +130,17 @@ private fun VideoContent(
     val controller by playerConnection.controller.collectAsStateWithLifecycle()
     val inPip by pip.inPip.collectAsStateWithLifecycle()
 
-    var qualityKey by rememberSaveable { mutableStateOf<String?>(null) } // null = Auto
+    var qualityKey by rememberSaveable { mutableStateOf<String?>(null) }   // null = Auto
+    var audioTrackId by rememberSaveable { mutableStateOf<String?>(null) } // null = default (original)
     var fullscreen by rememberSaveable { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var plan by remember { mutableStateOf<PlaybackPlan?>(null) }
+    var selectedSubtitleId by remember { mutableStateOf<String?>(null) }
+    // Last audio selection that actually played; restored if a newly chosen track fails to load.
+    var lastGoodAudioId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val audioTracks = remember(info) { info.audioTracks() }
+    val subtitleSources = remember(info) { SubtitlePlanner.sources(info.subtitleTracks()) }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) {
@@ -138,37 +151,48 @@ private fun VideoContent(
         }
     }
 
-    // Start (or change quality of) playback. Re-running after a reconnect is a no-op if the same stream is loaded.
-    LaunchedEffect(controller, info, qualityKey) {
+    // Start playback, or reload it when quality / audio track changes (same position, same play state).
+    LaunchedEffect(controller, info, qualityKey, audioTrackId) {
         val c = controller ?: return@LaunchedEffect
-        val plan = PlaybackPlanner.plan(info.streams, qualityKey)
-        if (plan == null) {
+        val next = PlaybackPlanner.plan(info.streams, qualityKey, audioTrackId)
+        plan = next
+        if (next == null) {
             playbackError = "No playable stream was found for this video."
             return@LaunchedEffect
         }
         playerConnection.setVideoEnabled(true)
-        val sameVideo = c.currentMediaItem?.mediaId == summary.id
-        if (sameVideo && c.currentMediaItem?.localConfiguration?.uri?.toString() == plan.videoUrl) return@LaunchedEffect
-
-        val resumeAt = if (sameVideo && !c.isCurrentMediaItemLive) c.currentPosition else 0L
-        val keepPlaying = if (sameVideo) c.playWhenReady else true
         playbackError = null
-        AppLog.i("Player", "start ${summary.id} quality=${plan.qualityLabel} merged=${plan.audioUrl != null} hls=${plan.isHls}")
-        c.setMediaItem(MediaItems.build(summary.id, summary.title, summary.channel, summary.thumbnailUrl, plan), resumeAt)
-        c.prepare()
-        c.playWhenReady = keepPlaying
+        if (PlayerSession.load(c, summary, next, subtitleSources)) {
+            AppLog.i("Player", "load ${summary.id} quality=${next.qualityLabel} audio=${next.audioTrackId ?: "built-in"} subs=${subtitleSources.size}")
+        }
     }
 
-    // Track errors, and whether PiP is allowed (only while actually playing).
+    // Reflect the player's real state in the UI: errors, PiP eligibility, selected subtitle.
     DisposableEffect(controller) {
         val c = controller
+        selectedSubtitleId = c?.selectedSubtitleId()
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                playbackError = describe(error)
+                AppLog.w("Player", "UI saw error ${error.errorCodeName}")
+                if (audioTrackId != lastGoodAudioId) {
+                    audioTrackId = lastGoodAudioId // revert; this triggers a reload of the last working track
+                    playbackError = "This audio track could not be loaded."
+                } else {
+                    playbackError = describe(error)
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 pip.eligible = isPlaying
+                if (isPlaying) lastGoodAudioId = audioTrackId
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                selectedSubtitleId = c?.selectedSubtitleId()
+            }
+
+            override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
+                selectedSubtitleId = c?.selectedSubtitleId()
             }
         }
         c?.addListener(listener)
@@ -203,7 +227,15 @@ private fun VideoContent(
                 Text(metaLine(summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            QualityPicker(info, qualityKey, onSelect = { qualityKey = it }, modifier = Modifier.padding(horizontal = 16.dp))
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                QualityRow(info, qualityKey, onSelect = { qualityKey = it })
+                AudioRow(audioTracks, audioTrackId, builtInOnly = plan != null && plan?.audioUrl == null, onSelect = { audioTrackId = it })
+                SubtitleRow(
+                    subtitleSources.map { it.id to it.label },
+                    selectedSubtitleId,
+                    onSelect = { id -> controller?.let { c -> if (!c.selectSubtitle(id)) playbackError = "This subtitle track could not be loaded." } },
+                )
+            }
             StreamInspector(info, viewModel, Modifier.padding(horizontal = 16.dp))
 
             if (info.details.description.isNotBlank()) {
@@ -227,6 +259,7 @@ private fun PlayerSurface(
         factory = { context ->
             PlayerView(context).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
+                setShowSubtitleButton(true)
                 setFullscreenButtonClickListener { requested -> onFullscreen(requested) }
             }
         },
@@ -288,24 +321,78 @@ private fun ErrorBox(message: String, onRetry: () -> Unit, modifier: Modifier = 
     }
 }
 
+/** A labelled row with a dropdown. [options] are (key, label); a null key means the "default/Off" entry. */
 @Composable
-private fun QualityPicker(info: VideoInfo, selectedKey: String?, onSelect: (String?) -> Unit, modifier: Modifier = Modifier) {
-    val qualities = remember(info) { info.qualities() }
-    if (qualities.isEmpty()) return
+private fun DropdownRow(
+    title: String,
+    currentLabel: String,
+    options: List<Pair<String?, String>>,
+    onSelect: (String?) -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
-    val current = qualities.firstOrNull { it.label == selectedKey }?.label ?: PlaybackPlanner.AUTO_LABEL
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("Quality", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Box {
-            OutlinedButton(onClick = { open = true }) { Text(current) }
+            OutlinedButton(onClick = { open = true }) { Text(currentLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("Auto (up to ${PlaybackPlanner.AUTO_MAX_HEIGHT}p)") }, onClick = { onSelect(null); open = false })
-                qualities.forEach { q ->
-                    DropdownMenuItem(text = { Text(q.label) }, onClick = { onSelect(q.label); open = false })
+                options.forEach { (key, label) ->
+                    DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(key); open = false })
                 }
             }
         }
     }
+}
+
+@Composable
+private fun StaticRow(title: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun QualityRow(info: VideoInfo, selectedKey: String?, onSelect: (String?) -> Unit) {
+    val qualities = remember(info) { info.qualities() }
+    if (qualities.isEmpty()) return
+    val current = qualities.firstOrNull { it.label == selectedKey }?.label ?: PlaybackPlanner.AUTO_LABEL
+    DropdownRow(
+        "Quality",
+        current,
+        listOf<Pair<String?, String>>(null to "Auto (up to ${PlaybackPlanner.AUTO_MAX_HEIGHT}p)") + qualities.map { it.label to it.label },
+        onSelect,
+    )
+}
+
+/** No selector unless there is a real choice: none -> hidden, one -> plain text, several -> dropdown. */
+@Composable
+private fun AudioRow(
+    tracks: List<StreamCatalog.AudioTrack>,
+    selectedId: String?,
+    builtInOnly: Boolean,
+    onSelect: (String?) -> Unit,
+) {
+    if (tracks.isEmpty()) return
+    val current = tracks.firstOrNull { it.trackId != null && it.trackId == selectedId }
+        ?: StreamCatalog.pickAudioTrack(tracks, null)!!
+    if (tracks.size == 1) {
+        StaticRow("Audio", current.label)
+        return
+    }
+    DropdownRow("Audio", current.label, tracks.map { it.trackId to it.label }, onSelect)
+    if (builtInOnly) {
+        Muted("This quality has built-in audio only. Pick another quality to switch audio tracks.")
+    }
+}
+
+@Composable
+private fun SubtitleRow(options: List<Pair<String, String>>, selectedId: String?, onSelect: (String?) -> Unit) {
+    if (options.isEmpty()) {
+        StaticRow("Subtitles", "None available")
+        return
+    }
+    val current = options.firstOrNull { it.first == selectedId }?.second ?: "Off"
+    DropdownRow("Subtitles", current, listOf<Pair<String?, String>>(null to "Off") + options, onSelect)
 }
 
 /**
