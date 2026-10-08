@@ -7,6 +7,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -26,7 +27,7 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val dataSourceFactory = YoutubeDataSourceFactory.create()
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(MergingMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory), dataSourceFactory))
+            .setMediaSourceFactory(MergingMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -39,6 +40,10 @@ class PlaybackService : MediaSessionService() {
             .build()
         player.addAnalyticsListener(PlayerDiagnostics.analytics)
         player.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                PlayerDiagnostics.logTextTracks(tracks)
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 AppLog.e("Player", PlayerDiagnostics.describeError(error), error)
             }

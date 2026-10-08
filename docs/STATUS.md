@@ -15,7 +15,7 @@ expect the possibility of small compile fixes.
 | Switching audio track during playback | **Partially supported** by design: implemented as a same-position reload (brief rebuffer). Untested on device |
 | Subtitle discovery, manual vs auto-generated labelling | **Supported** (device report: 29 tracks incl. auto-generated) |
 | Subtitle selection | Was broken (id mismatch); fixed in 0.4.1, verified by source reading + unit tests, not yet on device |
-| Subtitle rendering | Unverified on device; real reason now reported per track (see PHASE4-FIX.md) |
+| Subtitle rendering | 0.4.2 uses Media3's modern parser path (SubtitleExtractor). Root cause of the crash verified; rendering itself not yet confirmed on device |
 | Playback error at ~0:10 (John Michael Howell video) | Cause unknown; diagnostics added in 0.4.1 |
 | Subtitle formats other than TTML/VTT/SRT | Not supported (not offered) |
 | Resume from last position | Not working: no persistence exists (see KNOWN-ISSUES) |

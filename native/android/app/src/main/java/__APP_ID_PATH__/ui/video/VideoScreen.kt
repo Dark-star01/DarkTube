@@ -18,6 +18,7 @@ import __APP_ID__.core.playback.SubtitleProbe
 import __APP_ID__.core.playback.UrlDescriber
 import __APP_ID__.core.playback.SubtitlePlanner
 import __APP_ID__.core.playback.selectSubtitle
+import __APP_ID__.core.playback.subtitleActive
 import __APP_ID__.core.playback.selectedSubtitleId
 import __APP_ID__.ui.common.ErrorCard
 import __APP_ID__.ui.common.LoadingBox
@@ -140,6 +141,7 @@ private fun VideoContent(
     var playbackError by remember { mutableStateOf<String?>(null) }
     var playbackDetails by remember { mutableStateOf<String?>(null) }
     var subtitleNote by remember { mutableStateOf<String?>(null) }
+    var subtitleRecoveryTried by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var plan by remember { mutableStateOf<PlaybackPlan?>(null) }
     var selectedSubtitleId by remember { mutableStateOf<String?>(null) }
@@ -183,6 +185,15 @@ private fun VideoContent(
         selectedSubtitleId = c?.selectedSubtitleId()
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                // A subtitle problem must never end the video: turn subtitles off and resume, once.
+                if (c != null && c.subtitleActive() && !subtitleRecoveryTried) {
+                    subtitleRecoveryTried = true
+                    c.selectSubtitle(null)
+                    c.prepare()
+                    subtitleNote = "This subtitle track could not be played, so subtitles were turned off."
+                    playbackDetails = "${error.errorCodeName} (${error.errorCode})"
+                    return
+                }
                 playbackDetails = "${error.errorCodeName} (${error.errorCode})"
                 if (audioTrackId != lastGoodAudioId) {
                     audioTrackId = lastGoodAudioId // revert; this triggers a reload of the last working track
@@ -252,6 +263,7 @@ private fun VideoContent(
                                 c.selectSubtitle(null)
                             } else {
                                 val source = subtitleSources.first { it.id == id }
+                                subtitleRecoveryTried = false
                                 scope.launch {
                                     // Check what YouTube really sends before selecting, so a bad track
                                     // gives a precise reason instead of silently showing nothing.

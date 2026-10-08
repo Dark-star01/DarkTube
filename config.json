@@ -1,8 +1,8 @@
 {
   "appName": "DarkTube",
   "appId": "com.dark.darktube",
-  "version": "0.4.1",
-  "versionCode": 5,
+  "version": "0.4.2",
+  "versionCode": 6,
   "capacitorVersion": "7.6.9",
   "native": {
     "enabled": true,

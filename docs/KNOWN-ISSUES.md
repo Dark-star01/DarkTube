@@ -22,7 +22,9 @@ Switching track rebuilds the merged source at the same position, so expect a sho
 per video, so it was rejected.
 
 ## Subtitles
-- Fixed in 0.4.1: selection never worked because Media3 prefixes merged track ids (see PHASE4-FIX.md).
+- Fixed in 0.4.1: selection never worked because Media3 prefixes merged track ids.
+- Fixed in 0.4.2: TTML now goes through Media3's modern parser path (see PHASE4-FIX.md, fix #2).
+- Cost: all attached subtitle files are downloaded when a video is prepared (see PHASE4-FIX.md).
 - Rendering is UNVERIFIED on device. Before a track is selected DarkTube probes its file and reports
   empty / HTML / HTTP-error / wrong-format responses with a specific message. If YouTube requires a
   token for subtitle files, those tracks cannot be shown with the current engine.

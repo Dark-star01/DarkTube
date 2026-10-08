@@ -14,6 +14,11 @@ fun MediaController.selectedSubtitleId(): String? {
         .let { SubtitlePlanner.originalId(it) }
 }
 
+/** True while a subtitle track is chosen. Independent of currentTracks, which may be empty after a player error. */
+fun MediaController.subtitleActive(): Boolean =
+    !trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) &&
+        trackSelectionParameters.overrides.values.any { it.type == C.TRACK_TYPE_TEXT }
+
 /** @return false if the requested track isn't present in the player (yet). */
 fun MediaController.selectSubtitle(id: String?): Boolean {
     val params = trackSelectionParameters.buildUpon()

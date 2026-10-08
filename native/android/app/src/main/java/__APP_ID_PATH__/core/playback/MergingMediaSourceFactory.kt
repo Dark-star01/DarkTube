@@ -1,42 +1,42 @@
 package __APP_ID__.core.playback
 
+import __APP_ID__.core.log.AppLog
 import android.os.Bundle
 import androidx.annotation.OptIn
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.SingleSampleMediaSource
 
 /**
- * Builds a normal source for most items. When the item carries an audio URL (see [MediaItems])
- * the item's own URL (video-only) is merged with that separate audio stream, and every
- * subtitle on the item is merged in too.
+ * Adds the separate audio stream (see [MediaItems]) around whatever [DefaultMediaSourceFactory]
+ * builds for the item.
  *
- * Subtitle sources are built here (not by Media3's default factory) with load errors treated as
- * "end of stream": a dead subtitle URL then just yields no captions instead of failing playback.
+ * Subtitles are deliberately NOT handled here. The item's SubtitleConfigurations go to
+ * DefaultMediaSourceFactory untouched, which (Media3 1.5.1, parseSubtitlesDuringExtraction = true)
+ * loads each one with ProgressiveMediaSource + SubtitleExtractor and emits parsed cues
+ * (application/x-media3-cues). An earlier version built SingleSampleMediaSources itself, which feeds
+ * raw application/ttml+xml to a TextRenderer that has legacy decoding disabled and crashed playback
+ * with "Legacy decoding is disabled, can't handle application/ttml+xml samples". Using the factory
+ * also gives Media3's own protection against a failing subtitle download breaking prepare.
  */
 @OptIn(UnstableApi::class)
 class MergingMediaSourceFactory(
     private val delegate: DefaultMediaSourceFactory,
-    private val dataSourceFactory: DataSource.Factory,
 ) : MediaSource.Factory by delegate {
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val audioUrl = mediaItem.requestMetadata.extras?.getString(MediaItems.KEY_AUDIO_URL)
-        val subtitles = mediaItem.localConfiguration?.subtitleConfigurations.orEmpty()
-        if (audioUrl == null && subtitles.isEmpty()) return delegate.createMediaSource(mediaItem)
-
-        val bare = mediaItem.buildUpon().setSubtitleConfigurations(emptyList()).build()
-        val sources = ArrayList<MediaSource>()
-        sources += delegate.createMediaSource(bare)
-        if (audioUrl != null) sources += delegate.createMediaSource(MediaItem.fromUri(audioUrl))
-        val subtitleFactory = SingleSampleMediaSource.Factory(dataSourceFactory).setTreatLoadErrorsAsEndOfStream(true)
-        subtitles.forEach { sources += subtitleFactory.createMediaSource(it, C.TIME_UNSET) }
-        return if (sources.size == 1) sources[0] else MergingMediaSource(*sources.toTypedArray())
+        val subtitleCount = mediaItem.localConfiguration?.subtitleConfigurations?.size ?: 0
+        AppLog.d(
+            "Player",
+            "source: merged-audio=${audioUrl != null} subtitles=$subtitleCount " +
+                "parser=DefaultMediaSourceFactory(SubtitleExtractor -> application/x-media3-cues)",
+        )
+        val primary = delegate.createMediaSource(mediaItem) // video (+ subtitles via the modern path)
+        return if (audioUrl == null) primary
+        else MergingMediaSource(primary, delegate.createMediaSource(MediaItem.fromUri(audioUrl)))
     }
 }
 

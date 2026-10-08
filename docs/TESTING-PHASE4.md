@@ -32,3 +32,12 @@ Mark each line. Anything that fails: tap Settings > View debug log > Copy, and s
 - [ ] Background audio with screen locked; notification play/pause/seek
 - [ ] Bluetooth / headset play-pause
 - [ ] Leaving the video screen stops playback
+
+
+## 0.4.2 targeted subtitle tests (devices: Android 13 / Infinix X6525)
+- [ ] `plN7JMbadRg` + Arabic subtitle: video keeps playing, Arabic text appears, no error. Off removes it.
+- [ ] Off -> Arabic -> English -> Off: no player error, no restart of the video.
+- [ ] Arabic (dub) audio + Arabic subtitle together: dub keeps playing.
+- [ ] `Af6i6ChAVTw`: original audio, Arabic dub, subtitle if offered.
+- [ ] Debug log shows `text tracks=... sampleMime=[application/x-media3-cues]` (NOT application/ttml+xml).
+- [ ] No `ERROR_CODE_FAILED_RUNTIME_CHECK`. If one appears: copy the log.

@@ -1,4 +1,4 @@
-# Phase 4 fix pass (v0.4.1)
+# Phase 4 fix passes (v0.4.1, v0.4.2)
 
 Written honestly: the authoring sandbox cannot build an APK or run a device. Everything below marked
 VERIFIED was confirmed by reading the Media3 1.5.1 source or by unit tests. Everything marked
@@ -40,3 +40,55 @@ not supply), the page now says exactly that instead of a generic failure.
 ## Send me, for any failure
 Settings > View debug log > Copy. Lines of interest: `Player:` (error code + cause chain),
 `Subtitle: probe ...` (status, content type, first characters), `subtitle loaded ...`.
+
+
+---
+
+# Fix #2 (v0.4.2): TTML reached the renderer as `application/ttml+xml`
+
+## Exact root cause: VERIFIED on device log + Media3 1.5.1 source
+Device: `IllegalStateException: Legacy decoding is disabled, can't handle application/ttml+xml samples
+(expected application/x-media3-cues)`, error 1004, repeating across audio/quality/video changes.
+
+`MergingMediaSourceFactory` (v0.4.1) removed the subtitles from the MediaItem and built
+`SingleSampleMediaSource`s itself. That is Media3's legacy path: it delivers the raw TTML bytes with
+`sampleMimeType = application/ttml+xml`. In 1.5.1 the TextRenderer has legacy decoding disabled by default and
+only accepts parsed cues (`application/x-media3-cues`). The error persisted after switching video because the
+text selection override stayed in the player and the new source was built the same wrong way.
+Why my first design missed it: I bypassed `DefaultMediaSourceFactory` to get failure tolerance, and so also
+bypassed the step that makes subtitles parse.
+
+## Exact Media3 1.5.1 architecture now used (all signatures read from the 1.5.1 tag)
+`DefaultMediaSourceFactory` (default `parseSubtitlesDuringExtraction = true`), for each
+`MediaItem.SubtitleConfiguration`: builds a `Format` (mime, language, label, id, flags), then
+`ProgressiveMediaSource.Factory(dataSource, () -> SubtitleExtractor(DefaultSubtitleParserFactory.create(format), format))`
+with `setSuppressPrepareError(true)`, merged with the video in a `MergingMediaSource`.
+`DefaultSubtitleParserFactory` supports TTML (`TtmlParser`), WebVTT, SubRip. Output to the renderer is
+`application/x-media3-cues`. DarkTube now passes the subtitle configurations to this factory unchanged and only
+wraps the result with the separate audio stream (`MergingMediaSourceFactory`).
+The MIME declared on each SubtitleConfiguration stays the TRUE MIME of the downloaded file
+(`application/ttml+xml`); it is the input to the parser, not what the renderer receives.
+Legacy decoding was NOT enabled. A custom parser pipeline was not needed.
+`setSuppressPrepareError` is package-private in 1.5.1, so DarkTube cannot copy Media3's construction; it relies on
+the factory instead.
+
+## Safety net added
+If any player error happens while a subtitle track is active, DarkTube turns subtitles off, re-prepares at the
+same position and says so (once per selection). Video playback is not abandoned for a subtitle problem.
+
+## New diagnostics
+- `Player: source: merged-audio=.. subtitles=N parser=DefaultMediaSourceFactory(SubtitleExtractor -> application/x-media3-cues)`
+- `Player: text tracks=N sampleMime=[...] selected=[...]`: the sample MIME the renderer really gets.
+  Expected `[application/x-media3-cues]`. If `application/ttml+xml` ever appears here, the legacy path is back.
+- `Player: subtitle file loaded youtube/api ... status contentType bytes`
+- `Subtitle: probe ...` (declared vs actual content, as before)
+
+## Known cost of this design (decision for you)
+Media3 downloads EVERY attached subtitle file when the video is prepared (ProgressiveMediaPeriod starts
+loading on prepare). With 29 tracks on a one-hour video that is 29 small requests and likely several MB of data
+at the start of every video, even if you never open subtitles. Options if that bothers you:
+(a) attach only some tracks (e.g. device language + English), (b) attach a track only when chosen (reloads at
+the same position, short rebuffer). Not changed yet because it alters the "instant switching" behaviour.
+
+## Not verified here
+Everything on device. The sandbox cannot build or run the app. Test sheet: docs/TESTING-PHASE4.md.

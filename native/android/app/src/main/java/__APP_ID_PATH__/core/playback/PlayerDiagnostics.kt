@@ -44,6 +44,18 @@ object PlayerDiagnostics {
         return sb.toString()
     }
 
+    /**
+     * The MIME type the renderer actually receives for each text track. With the modern pipeline this must be
+     * application/x-media3-cues; application/ttml+xml here would mean the legacy path is back.
+     */
+    fun logTextTracks(tracks: androidx.media3.common.Tracks) {
+        val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (text.isEmpty()) return
+        val mimes = text.map { it.getTrackFormat(0).sampleMimeType }.distinct()
+        val selected = text.filter { it.isSelected }.map { SubtitlePlanner.originalId(it.getTrackFormat(0).id) }
+        AppLog.i(TAG, "text tracks=${text.size} sampleMime=$mimes selected=$selected")
+    }
+
     /** Non-fatal load results: lets us see subtitle downloads succeed or fail while the video keeps playing. */
     val analytics = object : AnalyticsListener {
         override fun onLoadCompleted(
@@ -51,15 +63,16 @@ object PlayerDiagnostics {
             loadEventInfo: LoadEventInfo,
             mediaLoadData: MediaLoadData,
         ) {
-            if (mediaLoadData.trackType != C.TRACK_TYPE_TEXT) return
+            // Subtitle files are loaded by ProgressiveMediaSource (trackType UNKNOWN), so recognise them by
+            // host instead: media streams are googlevideo, caption files are youtube.com/api/timedtext.
+            val description = UrlDescriber.describe(loadEventInfo.uri.toString())
+            if (!description.startsWith("youtube/")) return
             val headers = loadEventInfo.responseHeaders
             val status = headers.entries.firstOrNull { (it.key as String?) == null }?.value?.firstOrNull()
             val type = headers.entries.firstOrNull { (it.key as String?).equals("content-type", ignoreCase = true) }?.value?.firstOrNull()
             AppLog.i(
                 TAG,
-                "subtitle loaded ${UrlDescriber.describe(loadEventInfo.uri.toString())} " +
-                    "status='$status' contentType='$type' bytes=${loadEventInfo.bytesLoaded} " +
-                    "sampleMime=${mediaLoadData.trackFormat?.sampleMimeType}",
+                "subtitle file loaded $description status='$status' contentType='$type' bytes=${loadEventInfo.bytesLoaded}",
             )
         }
 
