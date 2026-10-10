@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- yt-dlp libraries declare minSdk 24; DarkTube keeps 23 (see app/build.gradle). Downloads need API 24+. -->
+    <uses-sdk tools:overrideLibrary="com.yausername.youtubedl_android, com.yausername.youtubedl_common, com.yausername.ffmpeg" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

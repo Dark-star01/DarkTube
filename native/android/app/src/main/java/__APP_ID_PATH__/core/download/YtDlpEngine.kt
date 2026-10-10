@@ -19,6 +19,9 @@ class YtDlpEngine(private val context: Context) : DownloadEngine {
     @Synchronized
     override fun initialize() {
         if (initialized) return
+        if (android.os.Build.VERSION.SDK_INT < 24) {
+            throw DownloadException(DownloadErrorKind.UNSUPPORTED_FORMAT, "yt-dlp runtime needs Android 7.0 (API 24) or newer")
+        }
         try {
             YoutubeDL.getInstance().init(context.applicationContext)
             FFmpeg.getInstance().init(context.applicationContext)

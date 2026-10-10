@@ -52,3 +52,12 @@ per video, so it was rejected.
 - Android 9 and older store files in the app's own folder (no MediaStore.Downloads).
 - Duplicate-cue fix removes only identical text+start+end; the real TTML data was not available, so look
   at the debug log line `parsed ... duplicatesRemoved=N` to see whether it triggered.
+
+## 0.5.1 build fix (CI failure of 0.5.0)
+- 0.5.0 failed in `:app:mergeLibDexDebug` (D8, DexingNoClasspathTransform, "android.jar is located outside
+  the root directory"). Cause: 0.5.0 raised the app minSdk to 24; AGP 8.7.2 then dexes libraries with the
+  no-classpath transform (needsClasspath = desugaring && minSdk < 24), and its DesugarGraph rejects the
+  android.jar edge that core-library desugaring produces. Phases 1-4 built at minSdk 23.
+- Fix: app minSdk stays 23; the yt-dlp libraries (minSdk 24) are allowed via `tools:overrideLibrary`;
+  `YtDlpEngine.initialize` refuses to run below API 24. Kotlin compilation was never reached in that log
+  (only kaptGenerateStubs ran), so Kotlin errors, if any, will show up in the next build.
