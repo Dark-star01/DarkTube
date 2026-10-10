@@ -61,3 +61,9 @@ per video, so it was rejected.
 - Fix: app minSdk stays 23; the yt-dlp libraries (minSdk 24) are allowed via `tools:overrideLibrary`;
   `YtDlpEngine.initialize` refuses to run below API 24. Kotlin compilation was never reached in that log
   (only kaptGenerateStubs ran), so Kotlin errors, if any, will show up in the next build.
+
+## 0.5.2 build fix (second CI failure)
+- 0.5.1 got past D8 and kapt (Room) and failed in `:app:compileDebugKotlin` with exactly three errors:
+  `DownloadManager.kt` used `id !in running` on a ConcurrentHashMap (Kotlin resolves `contains` to
+  `containsValue`; now `containsKey`), and `LocalPlayerScreen.kt` had a wrong `package` line
+  (`__APP_ID_PATH__` instead of `__APP_ID__`), so `DarkTubeApp` could not resolve it.

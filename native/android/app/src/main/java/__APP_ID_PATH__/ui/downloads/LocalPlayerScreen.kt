@@ -1,4 +1,4 @@
-package __APP_ID_PATH__.ui.downloads
+package __APP_ID__.ui.downloads
 
 import __APP_ID__.core.download.DownloadManager
 import __APP_ID__.core.download.OutputFiles

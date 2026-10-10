@@ -167,7 +167,7 @@ class DownloadManager(
     private suspend fun pump() = pumpMutex.withLock {
         val free = maxConcurrent - running.size
         if (free <= 0) return@withLock
-        for (e in dao.queued().filter { it.id !in running }.take(free)) launchJob(e)
+        for (e in dao.queued().filter { !running.containsKey(it.id) }.take(free)) launchJob(e)
     }
 
     private fun launchJob(e: DownloadEntity) {
