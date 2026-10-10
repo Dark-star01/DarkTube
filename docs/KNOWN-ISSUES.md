@@ -36,3 +36,19 @@ per video, so it was rejected.
 - If the player reports an error right after you pick a new audio track, DarkTube assumes the track
   failed, reverts to the previous one and says "This audio track could not be loaded". A video-stream
   error at that same moment would be reported the same way.
+
+## Phase 5 (downloads)
+- NOT verified on device or in CI yet; the authoring sandbox cannot reach Maven/Google hosts.
+- Pause kills the yt-dlp process and keeps `.part` files; Resume continues them. If YouTube refuses a
+  ranged resume the file restarts from zero (yt-dlp decides). Progress never moves backwards in the UI.
+- The foreground service uses type dataSync; Android 15 limits it to ~6 h per day.
+- Finished files are copied out of the work folder (needs roughly 2x the file size free while copying).
+- Dub audio is selected by yt-dlp's `language` field and never replaced by the original; if yt-dlp does
+  not list that language the download fails with "audio track isn't available". Whether a given yt-dlp
+  client lists all dubs must be confirmed on device.
+- Subtitle tags from the player (NewPipe) are matched to yt-dlp keys exactly; mismatch gives a note
+  "Subtitles not available: xx" while the video still downloads.
+- APK contains only arm64-v8a and armeabi-v7a (no x86 emulator).
+- Android 9 and older store files in the app's own folder (no MediaStore.Downloads).
+- Duplicate-cue fix removes only identical text+start+end; the real TTML data was not available, so look
+  at the debug log line `parsed ... duplicatesRemoved=N` to see whether it triggered.

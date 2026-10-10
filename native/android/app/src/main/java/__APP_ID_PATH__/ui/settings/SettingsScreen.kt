@@ -1,8 +1,19 @@
 package __APP_ID__.ui.settings
 
+import __APP_ID__.core.download.DownloadException
+import __APP_ID__.core.download.DownloadManager
+import __APP_ID__.core.download.DownloadStorage
 import __APP_ID__.core.extraction.EngineInfo
 import __APP_ID__.core.log.AppLog
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,7 +47,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SettingsScreen(engine: EngineInfo, onOpenLog: () -> Unit) {
+fun SettingsScreen(
+    engine: EngineInfo,
+    downloads: DownloadManager,
+    storage: DownloadStorage,
+    onOpenLog: () -> Unit,
+) {
     val context = LocalContext.current
     val appVersion = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
@@ -52,6 +68,8 @@ fun SettingsScreen(engine: EngineInfo, onOpenLog: () -> Unit) {
             Line("Version", engine.version)
             Text(engine.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        HorizontalDivider()
+        DownloadSettings(downloads, storage)
         HorizontalDivider()
         Group("Diagnostics") {
             Text(
@@ -117,5 +135,67 @@ private fun Line(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun DownloadSettings(downloads: DownloadManager, storage: DownloadStorage) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var location by remember { mutableStateOf(storage.destinationDescription()) }
+    var version by remember { mutableStateOf("…") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var updating by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { version = downloads.engineVersion() }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            storage.customTreeUri = uri.toString()
+            location = storage.destinationDescription()
+        }
+    }
+
+    Group("Downloads") {
+        Line("Save to", location)
+        Text(
+            "Downloads go to a folder you choose, or Downloads/DarkTube by default. No broad storage permission is used.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { picker.launch(null) }) { Text("Choose folder") }
+            if (storage.customTreeUri != null) {
+                OutlinedButton(onClick = { storage.customTreeUri = null; location = storage.destinationDescription() }) { Text("Use default") }
+            }
+        }
+        Line("Download engine", "yt-dlp $version")
+        Text(
+            "yt-dlp does the downloading; FFmpeg only merges video and audio or converts subtitles. If downloads start failing, update yt-dlp.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            enabled = !updating,
+            onClick = {
+                updating = true
+                status = "Updating…"
+                scope.launch {
+                    status = try {
+                        downloads.updateEngine().also { version = downloads.engineVersion() }
+                    } catch (e: DownloadException) {
+                        e.userMessage
+                    }
+                    updating = false
+                }
+            },
+        ) { Text("Update yt-dlp") }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }

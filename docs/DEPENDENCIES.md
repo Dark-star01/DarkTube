@@ -15,5 +15,10 @@
 | guava 33.3.1-android | `ListenableFuture` returned by `MediaController.buildAsync()` |
 | junit 4.13.2 (test) | unit tests |
 
-Deliberately NOT added yet (added with the phase that needs them): Room (+kapt), WorkManager,
-FFmpeg, yt-dlp.
+Added in Phase 5 (0.5.0):
+| io.github.junkfood02.youtubedl-android library + ffmpeg 0.18.1 (GPL-3.0) | yt-dlp, Python, QuickJS, FFmpeg 7.0.1 (merge/convert only). Needs minSdk 24, extracted native libs, abiFilters arm64-v8a + armeabi-v7a |
+| androidx.room 2.6.1 (runtime, ktx, kapt compiler) | persistent download queue (metadata only) |
+| androidx.documentfile 1.0.1 | writing into a user-chosen folder (SAF) |
+| org.json:json (test) | android.jar's org.json is a stub in unit tests |
+
+Still NOT added: WorkManager, a second HTTP stack, any analytics.

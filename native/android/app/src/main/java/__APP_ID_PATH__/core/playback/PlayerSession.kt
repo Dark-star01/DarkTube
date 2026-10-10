@@ -40,4 +40,21 @@ object PlayerSession {
         controller.playWhenReady = keepPlaying
         return true
     }
+
+    /** Loads a finished download into the same player. @return false if it is already loaded. */
+    fun loadLocal(
+        controller: MediaController,
+        mediaId: String,
+        title: String,
+        thumbnailUrl: String?,
+        uri: String,
+        subtitles: List<SubtitleSource>,
+    ): Boolean {
+        if (controller.currentMediaItem?.mediaId == mediaId) return false
+        controller.resetSubtitles()
+        controller.setMediaItem(MediaItems.buildLocal(mediaId, title, thumbnailUrl, uri, subtitles))
+        controller.prepare()
+        controller.playWhenReady = true
+        return true
+    }
 }

@@ -72,6 +72,28 @@ object MediaItems {
             .build()
     }
 
+    /** A finished download: one local file (content:// or file://), optional local subtitle files. */
+    fun buildLocal(
+        mediaId: String,
+        title: String,
+        thumbnailUrl: String?,
+        uri: String,
+        subtitles: List<SubtitleSource> = emptyList(),
+    ): MediaItem {
+        val metadata = androidx.media3.common.MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtworkUri(thumbnailUrl?.let(android.net.Uri::parse))
+            .build()
+        val extras = Bundle().apply { putString(KEY_VIDEO_URL, uri) }
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setUri(uri)
+            .setSubtitleConfigurations(subtitles.map { it.toConfiguration() })
+            .setMediaMetadata(metadata)
+            .setRequestMetadata(MediaItem.RequestMetadata.Builder().setExtras(extras).build())
+            .build()
+    }
+
     private fun SubtitleSource.toConfiguration() =
         MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(url))
             .setMimeType(mimeType)

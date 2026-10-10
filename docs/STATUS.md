@@ -20,8 +20,10 @@ expect the possibility of small compile fixes.
 | Subtitle formats other than TTML/VTT/SRT | Not supported (not offered) |
 | Resume from last position | Not working: no persistence exists (see KNOWN-ISSUES) |
 | Queue | Not implemented in code (see KNOWN-ISSUES) |
-| Downloads, FFmpeg, storage manager | Not built (Phase 5) |
-| History, favorites, playlists, Room | Not built (Phase 6) |
+| Downloads (yt-dlp + FFmpeg merge/convert, queue, pause/resume, service, Downloads screen, local playback) | **Built in 0.5.0, NOT yet verified on device or compiled by CI** (see PHASE5.md) |
+| Duplicate subtitle cues | Mitigated in 0.5.0 (exact text+start+end duplicates dropped; logged). Root cause not confirmed from real data |
+| Buffering spinner | Added in 0.5.0, driven by Player state |
+| History, favorites, playlists | Not built (Phase 6). Room exists only for the download queue |
 
 ## Known risks
 - YouTube may answer "confirm you're not a bot" on some networks (mapped to a clear message).

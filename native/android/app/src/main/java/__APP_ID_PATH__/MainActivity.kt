@@ -23,6 +23,9 @@ class MainActivity : ComponentActivity() {
     /** Video id arriving from a tapped/shared YouTube link, consumed once by the UI. */
     private val incomingVideoId = MutableStateFlow<String?>(null)
 
+    /** Set when the user taps a download notification. */
+    private val openDownloads = MutableStateFlow(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -33,10 +36,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val pending by incomingVideoId.collectAsStateWithLifecycle()
+            val downloadsRequested by openDownloads.collectAsStateWithLifecycle()
             DarkTubeApp(
                 container = container,
                 incomingVideoId = pending,
                 onIncomingConsumed = { incomingVideoId.value = null },
+                openDownloads = downloadsRequested,
+                onOpenDownloadsConsumed = { openDownloads.value = false },
             )
         }
     }
@@ -79,11 +85,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_DOWNLOADS, false) == true) openDownloads.value = true
         val text = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.dataString
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
             else -> null
         } ?: return
         YouTubeUrl.parseVideoId(text)?.let { incomingVideoId.value = it }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_DOWNLOADS = "darktube.openDownloads"
     }
 }

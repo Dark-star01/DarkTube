@@ -2,6 +2,9 @@ package __APP_ID__.ui
 
 import __APP_ID__.AppContainer
 import __APP_ID__.ui.common.appViewModel
+import __APP_ID__.ui.downloads.DownloadsScreen
+import __APP_ID__.ui.downloads.DownloadsViewModel
+import __APP_ID__.ui.downloads.LocalPlayerScreen
 import __APP_ID__.ui.home.HomeScreen
 import __APP_ID__.ui.search.SearchScreen
 import __APP_ID__.ui.search.SearchViewModel
@@ -12,6 +15,7 @@ import __APP_ID__.ui.video.VideoScreen
 import __APP_ID__.ui.video.VideoViewModel
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -36,7 +40,11 @@ import androidx.navigation.navArgument
 private object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
+    const val DOWNLOADS = "downloads"
     const val SETTINGS = "settings"
+    const val LOCAL_ARG = "dlid"
+    const val LOCAL = "local/{$LOCAL_ARG}"
+    fun local(id: Long) = "local/$id"
     const val LOG = "settings/log"
     const val VIDEO_ARG = "id"
     const val VIDEO = "video/{$VIDEO_ARG}"
@@ -48,6 +56,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab(Routes.HOME, "Home", Icons.Default.Home),
     Tab(Routes.SEARCH, "Search", Icons.Default.Search),
+    Tab(Routes.DOWNLOADS, "Downloads", Icons.Default.KeyboardArrowDown),
     Tab(Routes.SETTINGS, "Settings", Icons.Default.Settings),
 )
 
@@ -56,6 +65,8 @@ fun DarkTubeApp(
     container: AppContainer,
     incomingVideoId: String?,
     onIncomingConsumed: () -> Unit,
+    openDownloads: Boolean = false,
+    onOpenDownloadsConsumed: () -> Unit = {},
 ) {
     DarkTubeTheme {
         val nav = rememberNavController()
@@ -66,6 +77,13 @@ fun DarkTubeApp(
             if (incomingVideoId != null) {
                 nav.navigate(Routes.video(incomingVideoId))
                 onIncomingConsumed()
+            }
+        }
+
+        LaunchedEffect(openDownloads) {
+            if (openDownloads) {
+                nav.navigate(Routes.DOWNLOADS) { launchSingleTop = true }
+                onOpenDownloadsConsumed()
             }
         }
 
@@ -100,7 +118,18 @@ fun DarkTubeApp(
                     SearchScreen(vm, onOpenVideo = { nav.navigate(Routes.video(it)) })
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(container.extractor.engine, onOpenLog = { nav.navigate(Routes.LOG) })
+                    SettingsScreen(container.extractor.engine, container.downloads, container.downloadStorage, onOpenLog = { nav.navigate(Routes.LOG) })
+                }
+                composable(Routes.DOWNLOADS) {
+                    val vm = appViewModel { DownloadsViewModel(container.downloads) }
+                    DownloadsScreen(vm, onPlay = { nav.navigate(Routes.local(it)) })
+                }
+                composable(
+                    Routes.LOCAL,
+                    arguments = listOf(navArgument(Routes.LOCAL_ARG) { type = NavType.LongType }),
+                ) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getLong(Routes.LOCAL_ARG) ?: 0L
+                    LocalPlayerScreen(id, container.downloads, container.playerConnection, container.pip, onBack = { nav.popBackStack() })
                 }
                 composable(Routes.LOG) {
                     LogScreen(onBack = { nav.popBackStack() })
@@ -111,7 +140,7 @@ fun DarkTubeApp(
                 ) { backStackEntry ->
                     val id = backStackEntry.arguments?.getString(Routes.VIDEO_ARG).orEmpty()
                     val vm = appViewModel(key = "video-$id") { VideoViewModel(id, container.extractor) }
-                    VideoScreen(vm, container.playerConnection, container.pip, onBack = { nav.popBackStack() })
+                    VideoScreen(vm, container.playerConnection, container.pip, container.downloads, onBack = { nav.popBackStack() })
                 }
             }
         }

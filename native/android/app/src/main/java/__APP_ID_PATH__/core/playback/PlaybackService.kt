@@ -25,9 +25,14 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val dataSourceFactory = YoutubeDataSourceFactory.create()
+        val dataSourceFactory = YoutubeDataSourceFactory.create(this)
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(MergingMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory)))
+            .setMediaSourceFactory(
+                MergingMediaSourceFactory(
+                    // Same modern subtitle pipeline as before; the wrapper only removes exact duplicate cues.
+                    DefaultMediaSourceFactory(dataSourceFactory).setSubtitleParserFactory(DedupingSubtitleParserFactory()),
+                ),
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)

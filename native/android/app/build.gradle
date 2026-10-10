@@ -1,5 +1,26 @@
 // App module (merged, additive). Every dependency below has a reason; see docs/DEPENDENCIES.md.
+
+// Order matters: kapt needs the Kotlin Android plugin applied first. (APK Maker's own kotlin step
+// adds the same first line; the merger skips lines that already exist.)
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'kotlin-kapt'
+
 android {
+    defaultConfig {
+        // youtubedl-android (yt-dlp + Python + FFmpeg) requires API 24. Capacitor's own minimum is 23.
+        minSdkVersion 24
+        ndk {
+            // Real phones only (arm64 + 32-bit ARM). Add 'x86_64' here for an emulator build.
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+    }
+    packaging {
+        jniLibs {
+            // yt-dlp's Python, FFmpeg and QuickJS are executables shipped as .so files; Android must
+            // extract them to disk so they can be run.
+            useLegacyPackaging = true
+        }
+    }
     compileOptions {
         // Required by NewPipeExtractor on minSdk < 33 (java.time / nio backports).
         coreLibraryDesugaringEnabled true
@@ -8,7 +29,7 @@ android {
     }
     packaging {
         resources {
-            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST', 'META-INF/*.kotlin_module']
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST', 'META-INF/*.kotlin_module', 'META-INF/versions/**', 'META-INF/AL2.0', 'META-INF/LGPL2.1', 'META-INF/*.md']
         }
     }
 }
@@ -34,5 +55,17 @@ dependencies {
     implementation 'androidx.media3:media3-ui:1.5.1'
     implementation 'com.google.guava:guava:33.3.1-android'
 
+    // Phase 5: downloads
+    // yt-dlp + FFmpeg + Python + QuickJS (GPL-3.0). yt-dlp downloads; FFmpeg merges/converts only.
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
+    // Persistent download queue (metadata only). Room's annotation processor runs through kapt.
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
+    // Writing to a user-chosen folder (Storage Access Framework) without broad storage permission.
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

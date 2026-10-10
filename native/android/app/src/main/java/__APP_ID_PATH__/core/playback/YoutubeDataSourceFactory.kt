@@ -1,10 +1,12 @@
 package __APP_ID__.core.playback
 
+import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import java.util.concurrent.atomic.AtomicInteger
@@ -22,14 +24,19 @@ object YoutubeDataSourceFactory {
     private const val YOUTUBE = "https://www.youtube.com"
     private val POST_BODY = byteArrayOf(0x78, 0)
 
-    fun create(): DataSource.Factory {
+    /**
+     * http(s) goes through the YouTube-aware source below; content:// and file:// (finished downloads and
+     * their subtitle files) are handled by DefaultDataSource, so local playback uses the same player.
+     */
+    fun create(context: Context): DataSource.Factory {
         val upstream = DefaultHttpDataSource.Factory()
             .setUserAgent(USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
         val requestNumber = AtomicInteger(0)
-        return ResolvingDataSource.Factory(upstream) { spec -> rewrite(spec, requestNumber) }
+        val http = ResolvingDataSource.Factory(upstream) { spec -> rewrite(spec, requestNumber) }
+        return DefaultDataSource.Factory(context.applicationContext, http)
     }
 
     private fun rewrite(spec: DataSpec, requestNumber: AtomicInteger): DataSpec {

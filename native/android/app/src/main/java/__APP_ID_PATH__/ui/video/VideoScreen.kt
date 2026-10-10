@@ -1,6 +1,8 @@
 package __APP_ID__.ui.video
 
+import __APP_ID__.core.download.DownloadManager
 import __APP_ID__.core.extraction.AudioTrackKind
+import __APP_ID__.ui.downloads.DownloadDialog
 import __APP_ID__.core.extraction.Formatters
 import __APP_ID__.core.extraction.StreamCatalog
 import __APP_ID__.core.extraction.StreamReport
@@ -45,6 +47,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +55,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -96,6 +100,7 @@ fun VideoScreen(
     viewModel: VideoViewModel,
     playerConnection: PlayerConnection,
     pip: PipState,
+    downloads: DownloadManager,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -114,7 +119,7 @@ fun VideoScreen(
             BackButton(onBack)
             ErrorCard(s.error, onRetry = viewModel::load, modifier = Modifier.padding(16.dp))
         }
-        is VideoUiState.Ready -> VideoContent(s.info, viewModel, playerConnection, pip, onBack)
+        is VideoUiState.Ready -> VideoContent(s.info, viewModel, playerConnection, pip, downloads, onBack)
     }
 }
 
@@ -128,9 +133,11 @@ private fun VideoContent(
     viewModel: VideoViewModel,
     playerConnection: PlayerConnection,
     pip: PipState,
+    downloads: DownloadManager,
     onBack: () -> Unit,
 ) {
     val summary = info.details.summary
+    var showDownload by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val controller by playerConnection.controller.collectAsStateWithLifecycle()
     val inPip by pip.inPip.collectAsStateWithLifecycle()
@@ -246,6 +253,9 @@ private fun VideoContent(
                 Text(summary.title, style = MaterialTheme.typography.titleLarge)
                 Text(summary.channel, style = MaterialTheme.typography.bodyMedium)
                 Text(metaLine(summary), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!summary.isLive) {
+                    OutlinedButton(onClick = { showDownload = true }) { Text("Download") }
+                }
             }
 
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -284,6 +294,18 @@ private fun VideoContent(
 
             StreamInspector(info, viewModel, Modifier.padding(horizontal = 16.dp))
 
+            if (showDownload) {
+                DownloadDialog(
+                    info = info,
+                    onDismiss = { showDownload = false },
+                    onConfirm = { spec ->
+                        showDownload = false
+                        scope.launch { downloads.enqueue(spec) }
+                        android.widget.Toast.makeText(context, "Added to Downloads", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+
             if (info.details.description.isNotBlank()) {
                 DescriptionBlock(info.details.description, Modifier.padding(horizontal = 16.dp))
             }
@@ -292,29 +314,69 @@ private fun VideoContent(
     }
 }
 
+/**
+ * True while the player is genuinely not ready to show frames: Media3 reports STATE_BUFFERING (initial
+ * load, source replacement after a quality/audio switch, seeks, rebuffering) or it is prepared-but-idle
+ * with play requested. It follows the player's real state, so it disappears the moment playback is READY
+ * or fails; there is no timer.
+ */
+@Composable
+internal fun rememberPlayerBusy(controller: MediaController?): Boolean {
+    var busy by remember(controller) { mutableStateOf(controller?.isBusy() == true) }
+    DisposableEffect(controller) {
+        val c = controller
+        busy = c?.isBusy() == true
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) { busy = c?.isBusy() == true }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { busy = c?.isBusy() == true }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) { busy = c?.isBusy() == true }
+            override fun onPlayerError(error: PlaybackException) { busy = false }
+            override fun onIsLoadingChanged(isLoading: Boolean) { busy = c?.isBusy() == true }
+        }
+        c?.addListener(listener)
+        onDispose { c?.removeListener(listener) }
+    }
+    return busy
+}
+
+private fun Player.isBusy(): Boolean =
+    playbackState == Player.STATE_BUFFERING ||
+        (playbackState == Player.STATE_IDLE && mediaItemCount > 0 && playerError == null && playWhenReady)
+
 @OptIn(UnstableApi::class)
 @Composable
-private fun PlayerSurface(
+internal fun PlayerSurface(
     controller: MediaController?,
     showControls: Boolean,
     onFullscreen: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            PlayerView(context).apply {
-                setBackgroundColor(android.graphics.Color.BLACK)
-                setShowSubtitleButton(true)
-                setFullscreenButtonClickListener { requested -> onFullscreen(requested) }
-            }
-        },
-        update = { view ->
-            view.player = controller
-            view.useController = showControls
-        },
-        onRelease = { view -> view.player = null },
-    )
+    val busy = rememberPlayerBusy(controller)
+    Box(modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                PlayerView(context).apply {
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                    setShowSubtitleButton(true)
+                    setFullscreenButtonClickListener { requested -> onFullscreen(requested) }
+                }
+            },
+            update = { view ->
+                view.player = controller
+                view.useController = showControls
+            },
+            onRelease = { view -> view.player = null },
+        )
+        // Small centered spinner on top of the video: never blocks touches, so controls stay usable.
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center).size(40.dp),
+                color = Color.White,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
 }
 
 @Composable
@@ -374,7 +436,7 @@ private fun ErrorBox(message: String, details: String?, onRetry: () -> Unit, mod
 
 /** A labelled row with a dropdown. [options] are (key, label); a null key means the "default/Off" entry. */
 @Composable
-private fun DropdownRow(
+internal fun DropdownRow(
     title: String,
     currentLabel: String,
     options: List<Pair<String?, String>>,
@@ -503,7 +565,7 @@ private fun StreamInspector(info: VideoInfo, viewModel: VideoViewModel, modifier
 }
 
 @Composable
-private fun Muted(text: String) =
+internal fun Muted(text: String) =
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
