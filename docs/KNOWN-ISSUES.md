@@ -67,3 +67,9 @@ per video, so it was rejected.
   `DownloadManager.kt` used `id !in running` on a ConcurrentHashMap (Kotlin resolves `contains` to
   `containsValue`; now `containsKey`), and `LocalPlayerScreen.kt` had a wrong `package` line
   (`__APP_ID_PATH__` instead of `__APP_ID__`), so `DarkTubeApp` could not resolve it.
+
+## 0.5.3 — downloads stuck at 0% with HTTP 403
+- Evidence: every attempt re-runs `--dump-single-json` and a fresh download, so a 403 before any byte is a *refusal* (client / PO token / outdated yt-dlp), not an expired link. The old code labeled all 403 as EXPIRED_URL, never updated yt-dlp, and the picker could choose the `140-drc` copy.
+- Fix: 403 before bytes -> `STREAM_REFUSED` (update yt-dlp once, retry, then switch to the `android_vr` client); 403 after bytes -> `EXPIRED_URL` (re-extract and retry). Max 3 attempts, 120 s stall watchdog, DRC audio copies avoided, "Preparing download…" status, yt-dlp stderr logged.
+- `engine ready: yt-dlp unknown` is benign (library prefs are only set after an update); the real version is now read with `--version`.
+- NOT verified here: no APK build and no real download were run. Verify on device (Settings > log: look for `yt-dlp:` lines and `client=`).

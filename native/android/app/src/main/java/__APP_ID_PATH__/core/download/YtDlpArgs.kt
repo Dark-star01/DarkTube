@@ -10,17 +10,18 @@ data class YtOption(val flag: String, val value: String? = null)
 object YtDlpArgs {
     const val MEDIA_STEM = "media"
 
-    private fun common(): List<YtOption> = listOf(
+    private fun common(profile: ClientProfile = ClientProfile.DEFAULT): List<YtOption> = listOf(
         YtOption("--no-playlist"),
         YtOption("--no-mtime"),
         YtOption("--newline"),
         YtOption("--retries", "3"),
         YtOption("--fragment-retries", "3"),
         YtOption("--socket-timeout", "30"),
-    )
+    ) + (profile.extractorArgs?.let { listOf(YtOption("--extractor-args", it)) } ?: emptyList())
 
     /** `-J`: one JSON document describing the video, nothing downloaded. */
-    fun info(): List<YtOption> = common() + listOf(YtOption("--dump-single-json"), YtOption("--no-warnings"))
+    fun info(profile: ClientProfile = ClientProfile.DEFAULT): List<YtOption> =
+        common(profile) + listOf(YtOption("--dump-single-json"), YtOption("--no-warnings"))
 
     /**
      * @param workDir app-private directory for this job. Files are named `media.*` so titles never
@@ -33,8 +34,9 @@ object YtDlpArgs {
         subtitleLanguages: List<SubtitleSpec>,
         workDir: String,
         resume: Boolean,
+        profile: ClientProfile = ClientProfile.DEFAULT,
     ): List<YtOption> {
-        val out = common().toMutableList()
+        val out = common(profile).toMutableList()
         out += YtOption("--paths", workDir)
         out += YtOption("-o", "$MEDIA_STEM.%(ext)s")
         out += YtOption("-o", "subtitle:$MEDIA_STEM.%(ext)s")

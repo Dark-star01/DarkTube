@@ -26,17 +26,17 @@ class YtDlpEngine(private val context: Context) : DownloadEngine {
             YoutubeDL.getInstance().init(context.applicationContext)
             FFmpeg.getInstance().init(context.applicationContext)
             initialized = true
-            AppLog.i("Download", "engine ready: yt-dlp ${versionName()}")
+            AppLog.i("Download", "engine ready: yt-dlp ${versionName()} (Android API ${android.os.Build.VERSION.SDK_INT})")
         } catch (e: Exception) {
             AppLog.e("Download", "engine init failed", e)
             throw DownloadException(DownloadErrorKind.ENGINE_FAILURE, "init: ${e.message}", e)
         }
     }
 
-    override fun fetchInfo(videoId: String, processId: String?): YtInfo {
+    override fun fetchInfo(videoId: String, processId: String?, profile: ClientProfile): YtInfo {
         initialize()
         val request = YoutubeDLRequest(watchUrl(videoId))
-        apply(request, YtDlpArgs.info())
+        apply(request, YtDlpArgs.info(profile))
         val response = run(request, processId = processId, callback = null)
         return try {
             YtInfoParser.parse(response.out.trim())
@@ -53,13 +53,14 @@ class YtDlpEngine(private val context: Context) : DownloadEngine {
         workDir: String,
         processId: String,
         resume: Boolean,
+        profile: ClientProfile,
         onProgress: (ProgressSnapshot) -> Unit,
     ) {
         initialize()
         val request = YoutubeDLRequest(watchUrl(videoId))
-        val options = YtDlpArgs.download(selection, spec, subtitles, workDir, resume)
+        val options = YtDlpArgs.download(selection, spec, subtitles, workDir, resume, profile)
         apply(request, options)
-        AppLog.d("Download", "yt-dlp ${options.joinToString(" ") { "${it.flag} ${it.value ?: ""}".trim() }}")
+        AppLog.d("Download", "yt-dlp client=${profile.name} ${options.joinToString(" ") { "${it.flag} ${it.value ?: ""}".trim() }}")
         val files = (if (selection?.needsMerge == true) 2 else 1)
         val tracker = ProgressTracker(expectedFiles = files, estimatedTotalBytes = selection?.estimatedBytes ?: -1)
         run(request, processId) { percent, eta, line ->
@@ -73,17 +74,29 @@ class YtDlpEngine(private val context: Context) : DownloadEngine {
         false
     }
 
-    override fun versionName(): String = try {
-        YoutubeDL.getInstance().versionName(context) ?: YoutubeDL.getInstance().version(context) ?: "unknown"
-    } catch (e: Exception) {
-        "unknown"
+    @Volatile private var cachedVersion: String? = null
+
+    /** Runs `yt-dlp --version`; the library's own version prefs stay empty until the first update. */
+    override fun versionName(): String {
+        cachedVersion?.let { return it }
+        val asked = try {
+            val r = YoutubeDLRequest(emptyList<String>())
+            r.addOption("--version")
+            YoutubeDL.getInstance().execute(r, null, null).out.trim().lineSequence().firstOrNull { it.isNotBlank() }
+        } catch (e: Exception) {
+            AppLog.w("Download", "could not read yt-dlp version: ${e.message?.take(120)}")
+            null
+        }
+        val v = asked ?: YoutubeDL.getInstance().versionName(context) ?: YoutubeDL.getInstance().version(context) ?: "unknown"
+        if (asked != null) cachedVersion = v
+        return v
     }
 
     override fun update(): String {
         initialize()
         return try {
             when (YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)) {
-                YoutubeDL.UpdateStatus.DONE -> "Updated to ${versionName()}"
+                YoutubeDL.UpdateStatus.DONE -> { cachedVersion = null; "Updated to ${versionName()}" }
                 YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> "Already up to date (${versionName()})"
                 else -> "No update information"
             }
@@ -115,7 +128,12 @@ class YtDlpEngine(private val context: Context) : DownloadEngine {
         throw DownloadException(DownloadErrorKind.CANCELLED, "interrupted", e)
     } catch (e: YoutubeDLException) {
         val text = e.message ?: e.cause?.message
-        AppLog.w("Download", "yt-dlp failed: ${text?.lines()?.lastOrNull { it.isNotBlank() }}")
+        // Everything yt-dlp said on stderr (warnings often name the real cause, e.g. a missing PO token or
+        // a failed JS challenge). URLs are redacted by AppLog; length is capped.
+        val lines = text.orEmpty().lines().filter { it.isNotBlank() }
+        AppLog.w("Download", "yt-dlp failed (${lines.size} stderr lines)")
+        lines.take(12).forEach { AppLog.w("Download", "  yt-dlp: ${it.take(300)}") }
+        if (lines.size > 12) AppLog.w("Download", "  yt-dlp: … ${lines.last().take(300)}")
         throw DownloadException(DownloadError.classify(text), text ?: "no message", e)
     }
 }

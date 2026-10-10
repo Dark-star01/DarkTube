@@ -30,13 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-/** Notifications for downloads. Technical text never appears here. */
-interface DownloadNotifier {
-    fun progress(count: Int, title: String?, progress: Float)
-    fun completed(e: DownloadEntity)
-    fun failed(e: DownloadEntity)
-}
-
 class AndroidDownloadNotifier(private val context: Context) : DownloadNotifier {
     private var lastProgress = 0L
 

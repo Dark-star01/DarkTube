@@ -14,7 +14,6 @@ import java.io.File
 import java.io.IOException
 
 /** A file that has been moved to its final, user-visible location. */
-data class PublishedFile(val uri: String, val displayName: String, val mimeType: String, val sizeBytes: Long)
 
 /**
  * Scoped storage only (no MANAGE_EXTERNAL_STORAGE, no legacy storage permission).
@@ -24,7 +23,7 @@ data class PublishedFile(val uri: String, val displayName: String, val mimeType:
  *    overwritten.
  *  - Android 9 and older (no MediaStore.Downloads): app-specific external folder.
  */
-class DownloadStorage(private val context: Context) {
+class DownloadStorage(private val context: Context) : DownloadFiles {
 
     private val prefs = context.getSharedPreferences("darktube", Context.MODE_PRIVATE)
     private val resolver get() = context.contentResolver
@@ -34,19 +33,19 @@ class DownloadStorage(private val context: Context) {
     private val workRoot: File
         get() = File(context.getExternalFilesDir(null) ?: context.filesDir, "downloads").also { it.mkdirs() }
 
-    fun workDir(id: Long): File = File(workRoot, id.toString()).also { it.mkdirs() }
+    override fun workDir(id: Long): File = File(workRoot, id.toString()).also { it.mkdirs() }
 
-    fun cleanWork(id: Long) {
+    override fun cleanWork(id: Long) {
         File(workRoot, id.toString()).deleteRecursively()
     }
 
-    fun workFiles(id: Long): Map<String, Long> =
+    override fun workFiles(id: Long): Map<String, Long> =
         File(workRoot, id.toString()).listFiles()?.filter { it.isFile }?.associate { it.name to it.length() } ?: emptyMap()
 
-    fun workBytes(id: Long): Long = workFiles(id).values.sum()
+    override fun workBytes(id: Long): Long = workFiles(id).values.sum()
 
     /** Space left for both the work copy and the final copy. */
-    fun freeBytes(): Long = try {
+    override fun freeBytes(): Long = try {
         StatFs((context.getExternalFilesDir(null) ?: context.filesDir).absolutePath).availableBytes
     } catch (e: Exception) {
         Long.MAX_VALUE
@@ -82,7 +81,7 @@ class DownloadStorage(private val context: Context) {
      * [source] is deleted only after the copy succeeded.
      */
     @Throws(DownloadException::class)
-    fun publish(baseName: String, extension: String, source: File, mimeType: String): PublishedFile {
+    override fun publish(baseName: String, extension: String, source: File, mimeType: String): PublishedFile {
         val size = source.length()
         if (size <= 0) throw DownloadException(DownloadErrorKind.STORAGE_FAILURE, "empty source ${source.name}")
         try {
@@ -166,7 +165,7 @@ class DownloadStorage(private val context: Context) {
 
     // ───────────── existing files ─────────────
 
-    fun exists(uriString: String?): Boolean {
+    override fun exists(uriString: String?): Boolean {
         if (uriString == null) return false
         val uri = Uri.parse(uriString)
         return try {
@@ -177,7 +176,7 @@ class DownloadStorage(private val context: Context) {
         }
     }
 
-    fun delete(uriString: String?): Boolean {
+    override fun delete(uriString: String?): Boolean {
         if (uriString == null) return true
         val uri = Uri.parse(uriString)
         return try {

@@ -5,6 +5,7 @@ import java.util.Locale
 enum class DownloadErrorKind {
     NETWORK,
     EXPIRED_URL,
+    STREAM_REFUSED,
     VIDEO_UNAVAILABLE,
     AGE_RESTRICTED,
     BOT_CHECK,
@@ -33,6 +34,7 @@ object DownloadError {
     fun userMessage(kind: DownloadErrorKind): String = when (kind) {
         DownloadErrorKind.NETWORK -> "The connection was lost. Check your internet and retry."
         DownloadErrorKind.EXPIRED_URL -> "The download link expired. Retry to get a fresh one."
+        DownloadErrorKind.STREAM_REFUSED -> "YouTube refused to send this video to the downloader. DarkTube updates the downloader and tries another method automatically; if it still fails, update yt-dlp in Settings and retry."
         DownloadErrorKind.VIDEO_UNAVAILABLE -> "This video is unavailable for download."
         DownloadErrorKind.AGE_RESTRICTED -> "This video is age-restricted and can't be downloaded without signing in."
         DownloadErrorKind.BOT_CHECK -> "YouTube asked to confirm you're not a bot. Try again later or on another network."
@@ -52,10 +54,18 @@ object DownloadError {
 
     /** Worth an automatic bounded retry (fresh extraction happens on every attempt). */
     fun isRetryable(kind: DownloadErrorKind): Boolean = when (kind) {
-        DownloadErrorKind.NETWORK, DownloadErrorKind.EXPIRED_URL, DownloadErrorKind.ENGINE_FAILURE,
+        DownloadErrorKind.NETWORK, DownloadErrorKind.EXPIRED_URL, DownloadErrorKind.STREAM_REFUSED, DownloadErrorKind.ENGINE_FAILURE,
         DownloadErrorKind.BOT_CHECK, DownloadErrorKind.UNKNOWN -> true
         else -> false
     }
+
+    /**
+     * An HTTP 403 only means "expired link" if the transfer had already started: every attempt starts
+     * with a fresh extraction, so a 403 before the first byte is the server refusing the request
+     * (client / token / outdated extractor), not an old URL.
+     */
+    fun refine(kind: DownloadErrorKind, transferStarted: Boolean): DownloadErrorKind =
+        if (kind == DownloadErrorKind.EXPIRED_URL && !transferStarted) DownloadErrorKind.STREAM_REFUSED else kind
 
     /**
      * Classifies yt-dlp / FFmpeg / IO output. Order matters: the first matching rule wins and
@@ -96,10 +106,23 @@ object RetryPolicy {
 
     /** [attempt] = number of attempts already made (>= 1 after the first failure). */
     fun next(kind: DownloadErrorKind, attempt: Int, engineUpdatedAlready: Boolean): Next = when {
-        kind == DownloadErrorKind.ENGINE_OUTDATED && !engineUpdatedAlready -> Next.UPDATE_ENGINE_THEN_RETRY
+        (kind == DownloadErrorKind.ENGINE_OUTDATED || kind == DownloadErrorKind.STREAM_REFUSED) && !engineUpdatedAlready ->
+            Next.UPDATE_ENGINE_THEN_RETRY
         DownloadError.isRetryable(kind) && attempt < MAX_ATTEMPTS -> Next.RETRY
         else -> Next.FAIL
     }
 
     fun backoffMillis(attempt: Int): Long = 2_000L * attempt.coerceAtLeast(1)
+}
+
+/**
+ * How yt-dlp is asked to talk to YouTube. DEFAULT = yt-dlp's own client choice. After a refused stream
+ * (and an engine update) the next attempt switches to ANDROID_VR, a client that does not need a PO token.
+ * The same profile must be used for the info call and the download call so format ids stay valid.
+ */
+enum class ClientProfile(val extractorArgs: String?) {
+    DEFAULT(null),
+    ANDROID_VR("youtube:player_client=android_vr");
+
+    fun next(): ClientProfile = if (this == DEFAULT) ANDROID_VR else this
 }

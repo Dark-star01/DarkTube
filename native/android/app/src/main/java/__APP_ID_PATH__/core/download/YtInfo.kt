@@ -26,6 +26,9 @@ data class YtFormat(
     val isHls: Boolean get() = protocol.contains("m3u8")
     val isAvc: Boolean get() = vcodec?.startsWith("avc") == true
     val isAac: Boolean get() = acodec?.startsWith("mp4a") == true
+
+    /** "Dynamic range compression" copy of an audio track (format id like 140-drc): not the real track. */
+    val isDrc: Boolean get() = id.endsWith("-drc", ignoreCase = true) || note?.contains("DRC", ignoreCase = true) == true
 }
 
 data class YtSubtitleTrack(val language: String, val auto: Boolean, val exts: List<String>)
@@ -200,7 +203,9 @@ object FormatPicker {
      * receive the original track while believing it got a dub.
      */
     fun pickAudio(formats: List<YtFormat>, choice: AudioChoice): YtFormat {
-        val audio = formats.filter { it.audioOnly }
+        val allAudio = formats.filter { it.audioOnly }
+        // DRC variants are the same track with compressed dynamics; use them only if nothing else exists.
+        val audio = allAudio.filterNot { it.isDrc }.ifEmpty { allAudio }
         if (audio.isEmpty()) throw SelectionException(DownloadErrorKind.AUDIO_UNAVAILABLE, "no audio-only formats")
 
         // AAC (m4a) first: plays everywhere and lets AVC video merge into MP4. Then highest bitrate.

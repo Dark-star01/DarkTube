@@ -165,8 +165,25 @@ class ErrorTest {
         for (k in DownloadErrorKind.entries) {
             val m = DownloadError.userMessage(k)
             assertTrue(k.name, m.isNotBlank())
-            assertFalse(k.name, m.contains("Exception") || m.contains("yt-dlp") || m.contains("Errno") || m.contains("HTTP"))
+            assertFalse(k.name, m.contains("Exception") || (m.contains("yt-dlp") && k != DownloadErrorKind.STREAM_REFUSED) || m.contains("Errno") || m.contains("HTTP"))
         }
+    }
+
+    @Test fun a403BeforeAnyByteIsARefusalNotAnExpiredLink() {
+        assertEquals(DownloadErrorKind.STREAM_REFUSED, DownloadError.refine(DownloadErrorKind.EXPIRED_URL, transferStarted = false))
+        assertEquals(DownloadErrorKind.EXPIRED_URL, DownloadError.refine(DownloadErrorKind.EXPIRED_URL, transferStarted = true))
+        assertEquals(DownloadErrorKind.NETWORK, DownloadError.refine(DownloadErrorKind.NETWORK, transferStarted = false))
+    }
+
+    @Test fun refusedStreamUpdatesEngineOnceThenRetries() {
+        assertEquals(RetryPolicy.Next.UPDATE_ENGINE_THEN_RETRY, RetryPolicy.next(DownloadErrorKind.STREAM_REFUSED, 1, false))
+        assertEquals(RetryPolicy.Next.RETRY, RetryPolicy.next(DownloadErrorKind.STREAM_REFUSED, 2, true))
+        assertEquals(RetryPolicy.Next.FAIL, RetryPolicy.next(DownloadErrorKind.STREAM_REFUSED, RetryPolicy.MAX_ATTEMPTS, true))
+    }
+
+    @Test fun clientProfilesProgressAndSettle() {
+        assertEquals(ClientProfile.ANDROID_VR, ClientProfile.DEFAULT.next())
+        assertEquals(ClientProfile.ANDROID_VR, ClientProfile.ANDROID_VR.next())
     }
 
     @Test fun retryPolicyIsBounded() {
@@ -182,7 +199,7 @@ class ErrorTest {
     }
 }
 
-private val FIXTURE = """
+internal val FIXTURE = """
 {
  "id": "abc123", "title": "Demo", "is_live": false,
  "formats": [
@@ -194,6 +211,7 @@ private val FIXTURE = """
   {"format_id":"135","ext":"mp4","vcodec":"avc1.4d401e","acodec":"none","height":480,"fps":30,"tbr":1000,"protocol":"https"},
   {"format_id":"134","ext":"mp4","vcodec":"avc1.4d401e","acodec":"none","height":360,"fps":30,"tbr":600,"protocol":"https","filesize_approx":30000000},
   {"format_id":"140-0","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2","abr":129.5,"tbr":129.5,"language":"en","language_preference":10,"protocol":"https","filesize":15000000,"format_note":"English (US) original (default), medium"},
+  {"format_id":"140-drc","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2","abr":130.0,"tbr":130,"language":"en","language_preference":10,"protocol":"https","filesize":15000000,"format_note":"English (US) original (default), medium, DRC"},
   {"format_id":"140-1","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2","abr":129.5,"tbr":129.5,"language":"ar","language_preference":-1,"protocol":"https","filesize":15000000,"format_note":"Arabic, medium"},
   {"format_id":"251-1","ext":"webm","vcodec":"none","acodec":"opus","abr":135.0,"tbr":135,"language":"ar","language_preference":-1,"protocol":"https","filesize":16000000},
   {"format_id":"139-2","ext":"m4a","vcodec":"none","acodec":"mp4a.40.5","abr":48.0,"tbr":48,"language":"es-US","language_preference":-1,"protocol":"https","filesize":5000000},
@@ -264,6 +282,16 @@ class FormatPickerTest {
         assertEquals("ar", s.audio!!.language)
         assertEquals("136+140-1", s.formatArg) // AAC dub keeps mp4 container
         assertEquals("mp4", s.container)
+    }
+
+    @Test fun drcCopyOfTheAudioIsNeverChosenWhenARealOneExists() {
+        // 140-drc has a higher bitrate in the fixture; it must still lose.
+        assertEquals("140-0", FormatPicker.pickAudio(info.formats, AudioChoice(null)).id)
+        assertEquals("135+140-0", FormatPicker.select(info, spec(h = 480)).formatArg)
+        assertTrue(info.formats.first { it.id == "140-drc" }.isDrc)
+        // but if DRC is all there is, it is still better than nothing
+        val onlyDrc = info.formats.filter { !it.audioOnly || it.id == "140-drc" }
+        assertEquals("140-drc", FormatPicker.pickAudio(onlyDrc, AudioChoice(null)).id)
     }
 
     @Test fun regionalDubMatchesByExactTagThenPrimary() {
@@ -352,6 +380,15 @@ class YtDlpArgsTest {
         assertTrue(o.any { it.flag == "--no-playlist" })
         assertTrue(o.any { it.flag == "--no-continue" } && o.none { it.flag == "--continue" })
         assertTrue(o.none { it.flag == "--write-subs" })
+    }
+
+    @Test fun clientProfileReachesBothInfoAndDownload() {
+        val vr = ClientProfile.ANDROID_VR
+        assertEquals(listOf<String?>("youtube:player_client=android_vr"), YtDlpArgs.info(vr).get("--extractor-args"))
+        assertTrue(YtDlpArgs.info().none { it.flag == "--extractor-args" })
+        val sel = FormatPicker.select(info, spec())
+        val d = YtDlpArgs.download(sel, spec(), emptyList(), "/w", false, vr)
+        assertEquals(listOf<String?>("youtube:player_client=android_vr"), d.get("--extractor-args"))
     }
 
     @Test fun resumeUsesContinue() {

@@ -165,7 +165,10 @@ private fun summaryLine(e: DownloadEntity): String {
 
 private fun statusLine(e: DownloadEntity, state: DownloadState, exists: Boolean): String = when (state) {
     DownloadState.QUEUED -> "Queued"
-    DownloadState.DOWNLOADING -> {
+    DownloadState.DOWNLOADING -> if (e.progress <= 0f && e.speedBps <= 0L) {
+        // Nothing has been transferred yet: say what is really happening instead of "0%".
+        "Preparing download…" + if (e.attempts > 0) " · retry ${e.attempts} of 3" else ""
+    } else {
         val pct = "${(e.progress * 100).toInt()}%"
         val size = if (e.totalBytes > 0 && e.downloadedBytes >= 0) " · ${DownloadFormat.bytes(e.downloadedBytes)} of ${DownloadFormat.bytes(e.totalBytes)}" else ""
         "Downloading $pct$size · ${DownloadFormat.speed(e.speedBps)} · ETA ${DownloadFormat.eta(e.etaSeconds)}"

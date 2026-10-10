@@ -38,11 +38,15 @@ data class ActiveInfo(val count: Int, val title: String?, val progress: Float, v
 class DownloadManager(
     private val dao: DownloadDao,
     private val engine: DownloadEngine,
-    private val storage: DownloadStorage,
+    private val storage: DownloadFiles,
     private val serviceStarter: () -> Unit,
     private val notifier: DownloadNotifier,
     private val maxConcurrent: Int = 2,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val backoffMillis: (Int) -> Long = RetryPolicy::backoffMillis,
+    private val stallMillis: Long = STALL_MS,
+    private val watchdogIntervalMillis: Long = 10_000L,
+    private val progressIntervalMillis: Long = PROGRESS_INTERVAL_MS,
 ) {
     private enum class Intent { NONE, PAUSE, CANCEL, REMOVE }
 
@@ -50,6 +54,11 @@ class DownloadManager(
         @Volatile var intent = Intent.NONE
         @Volatile var title: String? = null
         @Volatile var progress = 0f
+        /** True once real bytes moved in the current attempt (a 403 after that means an expired link). */
+        @Volatile var transferStarted = false
+        /** Set by the watchdog when nothing happened for too long and the process was killed. */
+        @Volatile var stalled = false
+        @Volatile var lastActivity = System.currentTimeMillis()
         var job: Job? = null
     }
 
@@ -208,27 +217,54 @@ class DownloadManager(
         dao.update(entity)
 
         var attempt = entity.attempts
+        var profile = ClientProfile.DEFAULT
         while (true) {
+            val watchdog = scope.launch {
+                while (true) {
+                    delay(watchdogIntervalMillis)
+                    if (r.intent == Intent.NONE && System.currentTimeMillis() - r.lastActivity > stallMillis) {
+                        AppLog.w("Download", "#$id stalled for ${stallMillis / 1000}s without any progress; stopping the process")
+                        r.stalled = true
+                        engine.cancel(r.processId)
+                        break
+                    }
+                }
+            }
             try {
-                entity = withContext(Dispatchers.IO) { attemptOnce(id, r, spec, entity) }
+                r.transferStarted = false
+                r.lastActivity = System.currentTimeMillis()
+                entity = withContext(Dispatchers.IO) { attemptOnce(id, r, spec, entity, profile) }
                 dao.update(entity)
                 notifier.completed(entity)
                 return
             } catch (e: DownloadException) {
-                if (e.kind == DownloadErrorKind.CANCELLED || r.intent != Intent.NONE) return finishIntent(id, r)
+                var kind = e.kind
+                var technical = e.technical
+                if (r.stalled && r.intent == Intent.NONE) {
+                    r.stalled = false
+                    kind = DownloadErrorKind.NETWORK
+                    technical = "stalled: no progress for ${stallMillis / 1000}s"
+                } else if (kind == DownloadErrorKind.CANCELLED || r.intent != Intent.NONE) {
+                    return finishIntent(id, r)
+                }
+                kind = DownloadError.refine(kind, r.transferStarted)
                 attempt++
-                AppLog.w("Download", "#$id attempt $attempt failed: ${e.kind} ${e.technical.lines().lastOrNull { it.isNotBlank() }}")
-                when (RetryPolicy.next(e.kind, attempt, engineUpdatedThisSession)) {
+                AppLog.w("Download", "#$id attempt $attempt failed: $kind client=${profile.name} transferStarted=${r.transferStarted} ${technical.lines().lastOrNull { it.isNotBlank() }}")
+                when (RetryPolicy.next(kind, attempt, engineUpdatedThisSession)) {
                     RetryPolicy.Next.RETRY -> {
+                        // A refused stream that survived an engine update: ask YouTube differently.
+                        if (kind == DownloadErrorKind.STREAM_REFUSED) profile = profile.next()
                         entity = entity.copy(attempts = attempt)
                         dao.update(entity)
-                        delay(RetryPolicy.backoffMillis(attempt))
+                        delay(backoffMillis(attempt))
                         if (r.intent != Intent.NONE) return finishIntent(id, r)
                     }
                     RetryPolicy.Next.UPDATE_ENGINE_THEN_RETRY -> {
                         engineUpdatedThisSession = true
-                        AppLog.i("Download", "extraction failed; updating yt-dlp once")
+                        AppLog.i("Download", "#$id $kind; updating yt-dlp once before retrying")
+                        r.lastActivity = System.currentTimeMillis()
                         runCatching { withContext(Dispatchers.IO) { engine.update() } }
+                            .onSuccess { AppLog.i("Download", "yt-dlp update: $it") }
                             .onFailure { AppLog.w("Download", "engine update failed: ${it.message}") }
                         entity = entity.copy(attempts = attempt)
                         dao.update(entity)
@@ -237,13 +273,15 @@ class DownloadManager(
                         // Keep partial files for FAILED so Retry can resume; they are removed on Remove/Cancel.
                         entity = entity.copy(
                             state = DownloadState.FAILED.name, attempts = attempt, speedBps = 0, etaSeconds = -1,
-                            errorKind = e.kind.name, errorMessage = e.userMessage,
+                            errorKind = kind.name, errorMessage = DownloadError.userMessage(kind),
                         )
                         dao.update(entity)
                         notifier.failed(entity)
                         return
                     }
                 }
+            } finally {
+                watchdog.cancel()
             }
         }
     }
@@ -264,9 +302,10 @@ class DownloadManager(
     }
 
     /** One full attempt: fresh info -> choose formats -> download -> publish. Blocking. */
-    private fun attemptOnce(id: Long, r: Running, spec: DownloadSpec, start: DownloadEntity): DownloadEntity {
+    private fun attemptOnce(id: Long, r: Running, spec: DownloadSpec, start: DownloadEntity, profile: ClientProfile): DownloadEntity {
         engine.initialize()
-        val info = engine.fetchInfo(spec.videoId, r.processId)
+        val info = engine.fetchInfo(spec.videoId, r.processId, profile)
+        r.lastActivity = System.currentTimeMillis()
         if (r.intent != Intent.NONE) throw DownloadException(DownloadErrorKind.CANCELLED, "cancelled after info")
 
         val selection: FormatSelection? = if (spec.kind == DownloadKind.SUBTITLES_ONLY) null else try {
@@ -303,12 +342,15 @@ class DownloadManager(
             workDir = work.absolutePath,
             processId = r.processId,
             resume = resume,
+            profile = profile,
         ) { s ->
+            r.lastActivity = System.currentTimeMillis()
+            if (s.progress > 0f) r.transferStarted = true
             val now = System.currentTimeMillis()
             // Never let progress move backwards across a resume.
             val shown = maxOf(s.progress, start.progress.takeIf { resume } ?: 0f)
             r.progress = shown
-            if (now - last >= PROGRESS_INTERVAL_MS) {
+            if (now - last >= progressIntervalMillis) {
                 last = now
                 cur = cur.copy(progress = shown, downloadedBytes = s.downloadedBytes, totalBytes = if (s.totalBytes > 0) s.totalBytes else cur.totalBytes, speedBps = s.speedBps, etaSeconds = s.etaSeconds)
                 kotlinx.coroutines.runBlocking { dao.update(cur) }
@@ -389,6 +431,8 @@ class DownloadManager(
 
     companion object {
         private const val PROGRESS_INTERVAL_MS = 700L
+        /** No stdout line, no new bytes: the job is considered hung. */
+        const val STALL_MS = 120_000L
         private const val MARGIN_BYTES = 50L * 1024 * 1024
 
         fun toSpec(e: DownloadEntity) = DownloadSpec(
